@@ -1,5 +1,13 @@
 
 ==== version history of XML::Compile::Cache
 
+version 0.11: Thu Jun 12 14:36:40 CEST 2008
+
+	Improvements
+
+	- include XML::Compile::Schema method in the docs.
+
+	- added more docs
+
 version 0.10: Fri Jun  6 16:01:16 CEST 2008
 	Initial version.

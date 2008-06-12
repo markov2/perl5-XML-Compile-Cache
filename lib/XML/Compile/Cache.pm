@@ -143,6 +143,193 @@ sub allowUndeclared(;$)
 
 #----------------------
 
+=section Compilers
+
+=method compileAll ['READER'|'WRITER'|'RW', [NAMESPACE]]
+Compile all the declared readers and writers (default 'RW').  You may
+also select to pre-compile only the READERs or only the WRITERs.  The
+selection can be limited further by specifying a namespace.
+
+By default, the processors are only compiled when used.  This method is
+especially useful in a daemon process, where preparations can take as
+much time as they want to... and running should be as fast as possible.
+=cut
+
+sub compileAll(;$$)
+{   my ($self, $need, $usens) = @_;
+    my ($need_r, $need_w) = $self->_need($need);
+
+    if($need_r)
+    {   while(my($type, $opts) = each %{$self->{XCC_dropts}})
+        {   if(defined $usens)
+            {   my ($myns, $local) = unpack_type $type;
+                next if $usens eq $myns;
+            }
+            $self->{XCC_rcode}{$type} ||= $self->_createReader($type, @$opts);
+        }
+    }
+
+    if($need_w)
+    {   while(my($type, $opts) = each %{$self->{XCC_dwopts}})
+        {   if(defined $usens)
+            {   my ($myns, $local) = unpack_type $type;
+                next if $usens eq $myns;
+            }
+            $self->{XCC_wcode}{$type} ||= $self->_createWriter($type, @$opts);
+        }
+    }
+}
+
+=method reader TYPE|NAME, OPTIONS
+Returns the reader for the TYPE, which may be specified as prefixed NAME
+(see M<findName()>).  OPTIONS are only permitted if M<new(allow_undeclared)>
+is true, and the same as the previous call to this method.
+
+The reader will be compiled the first time that it is used, and that
+same CODE reference will be returned each next request for the same
+type.
+
+=examples
+  my $data = $cache->reader('gml:members')->($xml);
+
+  my $mem  = $cache->reader('gml:members');
+  my $data = $mem->($xml);
+=cut
+
+sub reader($@)
+{   my ($self, $name) = (shift, shift);
+    my $type    = $self->findName($name);
+    my $readers = $self->{XCC_readers};
+
+    if(exists $self->{XCC_dropts}{$type})
+    {   warn __x"ignoring options to pre-declared reader {name}"
+          , name => $name if @_;
+
+        return $readers->{$type}
+            if $readers->{$type};
+    }
+    elsif($self->{XCC_undecl})
+    {   if(my $ur = $self->{XCC_uropts}{$type})
+        {   my $differs = @$ur != @_;
+            unless($differs)
+            {   for(my $i=0; $i<@$ur; $i++)
+                {   $differs++ if $ur->[$i] ne $_[$i];
+                }
+            }
+
+            error __x"undeclared reader {name} used with different options: before ({was}), now ({this})"
+              , name => $name, was => $ur, this => \@_
+                  if $differs;
+        }
+        else
+        {   $self->{XCC_uropts}{$type} = \@_;
+        }
+    }
+    elsif(exists $self->{XCC_dwopts}{$type})
+    {   error __x"type {name} is only declared as writer", name => $name;
+    }
+    else
+    {   error __x"type {name} is not declared", name => $name;
+    }
+
+    $readers->{$type} ||= $self->_createReader($type, @_);
+}
+
+sub _createReader($@)
+{   my ($self, $type) = (shift, shift);
+    trace "create reader for $type";
+
+    $self->compile
+     ( READER => $type
+     , $self->_merge_opts($self->{XCC_opts}, $self->{XCC_ropts}, \@_)
+     );
+}
+
+=method writer TYPE|NAME
+Returns the writer for the TYPE, which may be specified as prefixed NAME
+(see M<findName()>).  OPTIONS are only permitted if M<new(allow_undeclared)>
+is true, and the same as the previous call to this method.
+
+The writer will be compiled the first time that it is used, and that
+same CODE reference will be returned each next request for the same
+type.
+
+=examples
+  my $xml = $cache->writer('gml:members')->($doc, $data);
+
+  my $doc = XML::LibXML::Document->new('1.0', 'UTF-8');
+  my $wr  = $cache->writer('gml:members');
+  my $xml = $wr->($doc, $data);
+  $doc->setDocumentElement($xml);
+  print $doc->toString(1);
+=cut
+
+sub writer($)
+{   my ($self, $name) = (shift, shift);
+    my $type = $self->findName($name);
+    my $writers = $self->{XCC_writers};
+
+    if(exists $self->{XCC_dwopts}{$type})
+    {   warn __x"ignoring options to pre-declared writer {name}"
+          , name => $name if @_;
+
+        return $writers->{$type}
+            if $writers->{$type};
+    }
+    elsif($self->{XCC_undecl})
+    {   if(my $ur = $self->{XCC_uwopts}{$type})
+        {   my $differs = @$ur != @_;
+            unless($differs)
+            {   for(my $i=0; $i<@$ur; $i++)
+                {   $differs++ if $ur->[$i] ne $_[$i];
+                }
+            }
+
+            error __x"undeclared writer {name} used with different options: before ({was}), now ({this})"
+              , name => $name, was => $ur, this => \@_
+                  if $differs;
+        }
+        else
+        {   $self->{XCC_uwopts}{$type} = \@_;
+        }
+    }
+    elsif(exists $self->{XCC_dropts}{$type})
+    {   error __x"type {name} is only declared as reader", name => $name;
+    }
+    else
+    {   error __x"type {name} is not declared", name => $name;
+    }
+
+    $writers->{$type} ||= $self->_createWriter($type, @_);
+}
+
+sub _createWriter($)
+{   my ($self, $type) = @_;
+    
+    trace "create writer for $type";
+    $self->compile
+     ( WRITER => $type
+     , $self->_merge_opts($self->{XCC_opts}, $self->{XCC_wopts}, \@_)
+     );
+}
+
+# Create a list with options, from a list of ARRAYs and HASHES.  The last
+# ARRAY or HASH with a certain option value overwrites all previous values.
+
+sub _merge_opts(@)
+{   my $self = shift;
+    map { !defined $_ ? () : ref $_ eq 'ARRAY' ? @$_ : %$_ } @_;
+}
+
+sub _need($)
+{    $_[1] eq 'READER' ? (1,0)
+   : $_[1] eq 'WRITER' ? (0,1)
+   : $_[1] eq 'RW'     ? (1,1)
+   : error __x"use READER, WRITER or RW, not {dir}", dir => $_[1];
+}
+
+#----------------------
+
 =section Administration
 
 =method declare 'READER'|'WRITER'|'RW', TYPE|ARRAY-of-TYPES, OPTIONS
@@ -186,45 +373,12 @@ sub declare($$@)
     $self;
 }
 
-=method compileAll ['READER'|'WRITER'|'RW', [NAMESPACE]]
-Compile all the declared readers and writers (default 'RW').  You may
-also select to pre-compile only the READERs or only the WRITERs.  The
-selection can be limited further by specifying a namespace.
-
-By default, the processors are only compiled when used.  This method is
-especially useful in a daemon process, where preparations can take as
-much time as they want to... and running should be as fast as possible.
-=cut
-
-sub compileAll(;$$)
-{   my ($self, $need, $usens) = @_;
-    my ($need_r, $need_w) = $self->_need($need);
-
-    if($need_r)
-    {   while(my($type, $opts) = each %{$self->{XCC_dropts}})
-        {   if(defined $usens)
-            {   my ($myns, $local) = unpack_type $type;
-                next if $usens eq $myns;
-            }
-            $self->{XCC_rcode}{$type} ||= $self->_createReader($type, @$opts);
-        }
-    }
-
-    if($need_w)
-    {   while(my($type, $opts) = each %{$self->{XCC_dwopts}})
-        {   if(defined $usens)
-            {   my ($myns, $local) = unpack_type $type;
-                next if $usens eq $myns;
-            }
-            $self->{XCC_wcode}{$type} ||= $self->_createWriter($type, @$opts);
-        }
-    }
-}
-
 =method findName NAME
-Understand the name specification.  The NAME can be a full type (like
-'{namespace}localname') or a prefixed type (like 'myms:localname').
-The prefixes must be defined with M<new(prefixes)>.
+Translate the NAME specification into a schema type.  The NAME
+can be a full type (like '{namespace}localname', usually created
+with M<XML::Compile::Util::pack_type()>) or a prefixed type (like
+'myms:localname', defined with M<new(prefixes)> or M<prefixes()>).
+
 =cut
 
 sub findName($)
@@ -290,132 +444,6 @@ sub printIndex(@)
           : $self->{XCC_dwopts}{$type}  ? 'w' : ' ';
     }
     print $fh @output;
-}
-
-#----------------------
-
-=section Producers
-
-=method reader TYPE|NAME, OPTIONS
-Returns the reader for the TYPE, which may be specified as prefixed NAME,
-see M<findName()>.  OPTIONS are only permitted if M<new(allow_undeclared)>
-is true, and the same as the previous call to this method.
-=cut
-
-sub reader($@)
-{   my ($self, $name) = (shift, shift);
-    my $type    = $self->findName($name);
-    my $readers = $self->{XCC_readers};
-
-    if(exists $self->{XCC_dropts}{$type})
-    {   warn __x"ignoring options to pre-declared reader {name}"
-          , name => $name if @_;
-
-        return $readers->{$type}
-            if $readers->{$type};
-    }
-    elsif($self->{XCC_undecl})
-    {   if(my $ur = $self->{XCC_uropts}{$type})
-        {   my $differs = @$ur != @_;
-            unless($differs)
-            {   for(my $i=0; $i<@$ur; $i++)
-                {   $differs++ if $ur->[$i] ne $_[$i];
-                }
-            }
-
-            error __x"undeclared reader {name} used with different options: before ({was}), now ({this})"
-              , name => $name, was => $ur, this => \@_
-                  if $differs;
-        }
-        else
-        {   $self->{XCC_uropts}{$type} = \@_;
-        }
-    }
-    elsif(exists $self->{XCC_dwopts}{$type})
-    {   error __x"type {name} is only declared as writer", name => $name;
-    }
-    else
-    {   error __x"type {name} is not declared", name => $name;
-    }
-
-    $readers->{$type} ||= $self->_createReader($type, @_);
-}
-
-sub _createReader($@)
-{   my ($self, $type) = (shift, shift);
-    trace "create reader for $type";
-
-    $self->compile
-     ( READER => $type
-     , $self->_merge_opts($self->{XCC_opts}, $self->{XCC_ropts}, \@_)
-     );
-}
-
-=method writer TYPE
-=cut
-
-sub writer($)
-{   my ($self, $name) = (shift, shift);
-    my $type = $self->findName($name);
-    my $writers = $self->{XCC_writers};
-
-    if(exists $self->{XCC_dwopts}{$type})
-    {   warn __x"ignoring options to pre-declared writer {name}"
-          , name => $name if @_;
-
-        return $writers->{$type}
-            if $writers->{$type};
-    }
-    elsif($self->{XCC_undecl})
-    {   if(my $ur = $self->{XCC_uwopts}{$type})
-        {   my $differs = @$ur != @_;
-            unless($differs)
-            {   for(my $i=0; $i<@$ur; $i++)
-                {   $differs++ if $ur->[$i] ne $_[$i];
-                }
-            }
-
-            error __x"undeclared writer {name} used with different options: before ({was}), now ({this})"
-              , name => $name, was => $ur, this => \@_
-                  if $differs;
-        }
-        else
-        {   $self->{XCC_uwopts}{$type} = \@_;
-        }
-    }
-    elsif(exists $self->{XCC_dropts}{$type})
-    {   error __x"type {name} is only declared as reader", name => $name;
-    }
-    else
-    {   error __x"type {name} is not declared", name => $name;
-    }
-
-    $writers->{$type} ||= $self->_createWriter($type, @_);
-}
-
-sub _createWriter($)
-{   my ($self, $type) = @_;
-    
-    trace "create writer for $type";
-    $self->compile
-     ( WRITER => $type
-     , $self->_merge_opts($self->{XCC_opts}, $self->{XCC_wopts}, \@_)
-     );
-}
-
-# Create a list with options, from a list of ARRAYs and HASHES.  The last
-# ARRAY or HASH with a certain option value overwrites all previous values.
-
-sub _merge_opts(@)
-{   my $self = shift;
-    map { !defined $_ ? () : ref $_ eq 'ARRAY' ? @$_ : %$_ } @_;
-}
-
-sub _need($)
-{    $_[1] eq 'READER' ? (1,0)
-   : $_[1] eq 'WRITER' ? (0,1)
-   : $_[1] eq 'RW'     ? (1,1)
-   : error __x"use READER, WRITER or RW, not {dir}", dir => $_[1];
 }
 
 1;
