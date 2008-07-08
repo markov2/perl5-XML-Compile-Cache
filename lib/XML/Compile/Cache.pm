@@ -58,8 +58,7 @@ during the initiation of the daemon.
 Define prefix name to name-space mappings.
 
 These will also be automatically added to the writer options
-(C<opts_writers>), as C<output_namespaces> value, unless that
-already defines a name-space table.
+(C<opts_writers>), unless that already defines a name-space table.
 
 =option  opts_rw HASH|ARRAY-of-PAIRS
 =default opts_rw []
@@ -103,11 +102,9 @@ sub init($)
     my $prefixes = delete $args->{prefixes}   || [];
     if(ref $prefixes eq 'ARRAY')
     {   $self->{XCC_prefix}  = { @$prefixes };
-        unshift @{$self->{XCC_wopts}}, output_namespaces => $prefixes;
     }
     else
     {   $self->{XCC_prefix}  = $prefixes;
-        unshift @{$self->{XCC_wopts}}, output_namespaces => [ %$prefixes ];
     }
     $self;
 }
@@ -239,10 +236,13 @@ sub _createReader($@)
 {   my ($self, $type) = (shift, shift);
     trace "create reader for $type";
 
-    $self->compile
-     ( READER => $type
-     , $self->_merge_opts($self->{XCC_opts}, $self->{XCC_ropts}, \@_)
+    my @opts = $self->_merge_opts
+     ( {prefixes => [ %{$self->{XCC_prefix}} ]}
+     , $self->{XCC_opts}, $self->{XCC_ropts}
+     , \@_
      );
+
+    $self->compile(READER => $type, @opts);
 }
 
 =method writer TYPE|NAME
@@ -307,10 +307,12 @@ sub _createWriter($)
 {   my ($self, $type) = @_;
     
     trace "create writer for $type";
-    $self->compile
-     ( WRITER => $type
-     , $self->_merge_opts($self->{XCC_opts}, $self->{XCC_wopts}, \@_)
-     );
+    my @opts = $self->_merge_opts
+      ( {prefixes => [ %{$self->{XCC_prefix}} ]}
+      , $self->{XCC_opts}, $self->{XCC_wopts}
+      , \@_
+      );
+    $self->compile(WRITER => $type, @opts);
 }
 
 # Create a list with options, from a list of ARRAYs and HASHES.  The last

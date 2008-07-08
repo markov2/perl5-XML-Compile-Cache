@@ -1,6 +1,18 @@
 
 ==== version history of XML::Compile::Cache
 
+version 0.12: Tue Jul  8 13:25:05 CEST 2008
+
+	Changes:
+
+	- require XML::Compile 0.87 for rename of option output_namespaces,
+	  replaces by 'prefixes'.
+
+	Improvements:
+
+	- merge prefixes with ::Schema base administration, to permit
+	  key_rewrite.
+
 version 0.11: Thu Jun 12 14:36:40 CEST 2008
 
 	Improvements
