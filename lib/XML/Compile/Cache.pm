@@ -7,6 +7,7 @@ use base 'XML::Compile::Schema';
 use Log::Report 'xml-compile-cache', syntax => 'SHORT';
 
 use XML::Compile::Util   qw/pack_type unpack_type/;
+use List::Util           qw/first/;
 
 =chapter NAME
 XML::Compile::Cache - Cache compiled XML translators
@@ -55,10 +56,21 @@ during the initiation of the daemon.
 
 =option  prefixes HASH|ARRAY-of-PAIRS
 =default prefixes <smart>
-Define prefix name to name-space mappings.
+Define prefix name to name-space mappings.  Passed to M<compile(prefixes)>
+for each reader and writer, but also used to permit M<findName()> to
+accept types which use a prefix.
 
-These will also be automatically added to the writer options
-(C<opts_writers>), unless that already defines a name-space table.
+Specify an ARRAY of (prefix, name-space) pairs, or a HASH which maps
+name-spaces to prefixes (HASH order is reversed from ARRAY order!)  When
+you wish to collect the results, like usage counts, of the translation
+processing, you will need to specify a HASH.
+
+ prefixes => [ mine => $myns, your => $yourns ]
+ prefixes => { $myns => 'mine', $yourns => 'your' }
+
+ # the previous is short for:
+ prefixes => { $myns => [ uri => $myns, prefix => 'mine', used => 0 ]
+             , $yourns => [ uri => $yourns, prefix => 'your', ...] }
 
 =option  opts_rw HASH|ARRAY-of-PAIRS
 =default opts_rw []
@@ -78,6 +90,14 @@ When true, you may call the reader or writer with types which were
 not registered with M<declare()>.  In that case, the reader or
 writer may also get options passed for the compiler, as long as
 they are consistent over each use of the type.
+
+=option  any_element CODE|'TAKE_ALL'|'SKIP_ALL'|'ATTEMPT'
+=default any_element 'SKIP_ALL'
+ATTEMPT will convert all any elements, applying the reader for
+each element found.
+
+=option  any_attribute CODE|'TAKE_ALL'|'SKIP_ALL'|'ATTEMPT'
+=default any_attribute 'SKIP_ALL'
 =cut
 
 sub init($)
@@ -99,13 +119,15 @@ sub init($)
     $self->{XCC_readers} = {};
     $self->{XCC_writers} = {};
 
-    my $prefixes = delete $args->{prefixes}   || [];
-    if(ref $prefixes eq 'ARRAY')
-    {   $self->{XCC_prefix}  = { @$prefixes };
+    $self->{XCC_prefix}  = $self->_namespaceTable(delete $args->{prefixes});
+
+    if(my $anyelem = $args->{any_element})
+    {   if($anyelem eq 'ATTEMPT')
+        {   push @{$self->{XCC_ropts}}
+              , any_element => sub {$self->_convertAnyElementReader(@_)};
+        }
     }
-    else
-    {   $self->{XCC_prefix}  = $prefixes;
-    }
+
     $self;
 }
 
@@ -121,11 +143,12 @@ namespace relations.
 
 sub prefixes(@)
 {   my $self = shift;
+    my $p    = $self->{XCC_prefix};
     while(@_)
-    {   my $k = shift;
-        $self->{XCC_prefix}{$k} = shift;
+    {   my ($prefix, $ns) = (shift, shift);
+        $p->{$ns} = { uri => $ns, prefix => $prefix, used => 0 };
     }
-    $self->{XCC_prefix};
+    $p;
 }
 
 =method allowUndeclared [BOOLEAN]
@@ -187,10 +210,12 @@ same CODE reference will be returned each next request for the same
 type.
 
 =examples
-  my $data = $cache->reader('gml:members')->($xml);
+  my $schema = XML::Compile::Cache->new(\@xsd,
+     prefixes => [ gml => $GML_NAMESPACE ] );
+  my $data   = $schema->reader('gml:members')->($xml);
 
-  my $mem  = $cache->reader('gml:members');
-  my $data = $mem->($xml);
+  my $getmem = $schema->reader('gml:members');
+  my $data   = $getmem->($xml);
 =cut
 
 sub reader($@)
@@ -237,7 +262,7 @@ sub _createReader($@)
     trace "create reader for $type";
 
     my @opts = $self->_merge_opts
-     ( {prefixes => [ %{$self->{XCC_prefix}} ]}
+     ( {prefixes => $self->prefixes}
      , $self->{XCC_opts}, $self->{XCC_ropts}
      , \@_
      );
@@ -308,7 +333,7 @@ sub _createWriter($)
     
     trace "create writer for $type";
     my @opts = $self->_merge_opts
-      ( {prefixes => [ %{$self->{XCC_prefix}} ]}
+      ( {prefixes => $self->prefixes}
       , $self->{XCC_opts}, $self->{XCC_wopts}
       , \@_
       );
@@ -385,20 +410,20 @@ with M<XML::Compile::Util::pack_type()>) or a prefixed type (like
 
 sub findName($)
 {   my ($self, $name) = @_;
+defined $name or panic "findName";
+
     my ($type, $ns, $local);
     if($name =~ m/^\{/)
-    {   ($type, $ns, $local) = ($name, unpack_type $name);
-    }
-    elsif($name =~ m/^(\w+)\:(\S+)$/)
-    {   (my $prefix, $local) = ($1, $2);
-        $ns = $self->{XCC_prefix}{$prefix}
-            or error __x"unknown protocol name prefix `{prefix}'"
-                 , prefix => $prefix;
-
-        $type  = pack_type $ns, $local;
+    {   $type = $name;
     }
     else
-    {   error __x"protocol name must show namespace or prefix";
+    {   (my $prefix,$local) = $name =~ m/^(\w*)\:(\S+)$/ ? ($1,$2) : ('',$name);
+        my $p  = $self->{XCC_prefix};
+        my $ns = first { $p->{$_}{prefix} eq $prefix } keys %$p;
+        defined $ns
+            or error __x"unknown name prefix for `{name}'", name => $name;
+
+        $type  = pack_type $ns, $local;
     }
 
     $type;
@@ -447,5 +472,20 @@ sub printIndex(@)
     }
     print $fh @output;
 }
+
+#---------------
+# Convert ANY elements and attributes
+
+sub _convertAnyElementReader(@)
+{   my ($self, $type, $nodes, $path, $args) = @_;
+
+    my $reader  = try { $self->reader($type) };
+    !$@ && $reader or return ($type => $nodes);
+
+    my @nodes   = ref $nodes eq 'ARRAY' ? @$nodes : $nodes;
+    my @convert = map {$reader->($_)} @nodes;
+    ($type => (ref $nodes eq 'ARRAY' ? $convert[0] : \@convert));
+}
+
 
 1;

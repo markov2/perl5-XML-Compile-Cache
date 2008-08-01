@@ -1,6 +1,22 @@
 
 ==== version history of XML::Compile::Cache
 
+version 0.13: Fri Aug  1 13:21:09 CEST 2008
+
+	Changes:
+
+	- requires XML::Compile 0.91 for options to ::Schema::new(any_element)
+ 	  and any_attribute.
+
+	- rewrote prefix handling to be compatible with XML::Compile::Schema
+	  improvements.
+
+	Improvements:
+
+	- any_element and any_attribute READER option 'CONVERT'
+
+	- findName() accepts default name-space in search.
+
 version 0.12: Tue Jul  8 13:25:05 CEST 2008
 
 	Changes:
