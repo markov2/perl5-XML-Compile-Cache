@@ -29,6 +29,7 @@ XML::Compile::Cache - Cache compiled XML translators
  print Dumper $reader->($xml);
 
  # get the cached code ref for the writer, and use it
+ my $doc = XML::LibXML::Document->new('1.0', 'UTF-8');
  my $xml = $cache->writer($type)->($doc, $perl);
  print $xml->toString(1);
 
@@ -36,10 +37,11 @@ XML::Compile::Cache - Cache compiled XML translators
  my $do = $cache->compile(READER => $type, @opts);
 
 =chapter DESCRIPTIONS
-With M<XML::Compile::Schema::compile()> (from the SUPER class of this one)
-you can construct translators from XML to Perl and back.  These
-translators are code references, which are "expensive" to create, but
-"cheap" in use; call them as often as you want.
+With M<XML::Compile::Schema::compile()> (defined in the SUPER class of
+this module) you can construct translators from XML to Perl and back.
+These translators are code references, which are "expensive" to create,
+but "cheap" in use; call them as often as you want.  This module helps
+you administer them.
 
 When the schemas grow larger, it gets harder to see which code reference
 have already be created and which not.  And, these code references need
@@ -47,6 +49,11 @@ compile options which you do not want to distribute over your whole
 program.  Finally, in a daemon application, you do not want to create
 the translators when used (which can be in every client again), but once
 during the initiation of the daemon.
+
+One of the most important contributions to the compile management, is
+the addition of smart prefix handling.  This means that you can use
+prefixed names in stead of full types, often created with
+M<XML::Compile::SOAP::Util::pack_type()>.
 
 =chapter METHODS
 
@@ -95,9 +102,6 @@ they are consistent over each use of the type.
 =default any_element 'SKIP_ALL'
 ATTEMPT will convert all any elements, applying the reader for
 each element found.
-
-=option  any_attribute CODE|'TAKE_ALL'|'SKIP_ALL'|'ATTEMPT'
-=default any_attribute 'SKIP_ALL'
 =cut
 
 sub init($)
@@ -119,7 +123,10 @@ sub init($)
     $self->{XCC_readers} = {};
     $self->{XCC_writers} = {};
 
-    $self->{XCC_prefix}  = $self->_namespaceTable(delete $args->{prefixes});
+    my $p = $self->{XCC_namespaces}
+          = $self->_namespaceTable(delete $args->{prefixes});
+    my %a = map { ($_->{prefix} => $_) } values %$p;
+    $self->{XCC_prefixes} = \%a;
 
     if(my $anyelem = $args->{any_element})
     {   if($anyelem eq 'ATTEMPT')
@@ -137,18 +144,49 @@ sub init($)
 
 =method prefixes [PAIRS]
 Returns the HASH with prefix to name-space translations.  You should not
-modify the returned HASH, but can provide PAIRS of additional prefix to
-namespace relations.
+modify the returned HASH.  New PAIRS of prefix to namespace relations
+can be passed.
+
+[0.14]
+If a name-space appears for the second time, then the new prefix will be
+recognized by M<findName()>, but not used in the output.  When the prefix
+already exists for a different namespace, then an error will be casted.
 =cut
 
 sub prefixes(@)
 {   my $self = shift;
-    my $p    = $self->{XCC_prefix};
+    my ($p, $a) = @$self{ qw/XCC_namespaces XCC_prefixes/ };
     while(@_)
     {   my ($prefix, $ns) = (shift, shift);
-        $p->{$ns} = { uri => $ns, prefix => $prefix, used => 0 };
+        $p->{$ns} ||= { uri => $ns, prefix => $prefix, used => 0 };
+
+        if(my $def = $a->{$prefix})
+        {   if($def->{uri} ne $ns)
+            {   error __x"prefix {prefix} already refers to {uri}, cannot use it for {ns}"
+                  , prefix => $prefix, uri => $def->{uri}, ns => $ns;
+            }
+        }
+        else
+        {   $a->{$prefix} = $p->{$ns};
+        }
     }
     $p;
+}
+
+=method prefix PREFIX
+Lookup a prefix definition.  This returns a HASH with namespace info.
+=cut
+
+sub prefix($) { $_[0]->{XCC_prefixes}{$_[1]} }
+
+=method prefixFor URI
+Lookup the preferred prefix for the URI.
+=cut
+
+sub prefixFor($)
+{   my $def = $_[0]->{XCC_namespaces}{$_[1]} or return ();
+    $def->{used}++;
+    $def->{prefix};
 }
 
 =method allowUndeclared [BOOLEAN]
@@ -201,13 +239,13 @@ sub compileAll(;$$)
 }
 
 =method reader TYPE|NAME, OPTIONS
-Returns the reader for the TYPE, which may be specified as prefixed NAME
-(see M<findName()>).  OPTIONS are only permitted if M<new(allow_undeclared)>
-is true, and the same as the previous call to this method.
+Returns the reader CODE for the TYPE or NAME (see M<findName()>).
+OPTIONS are only permitted if M<new(allow_undeclared)> is true, and the
+same as the previous call to this method.
 
 The reader will be compiled the first time that it is used, and that
 same CODE reference will be returned each next request for the same
-type.
+TYPE.  Call M<compileAll()> to have all readers compiled by force.
 
 =examples
   my $schema = XML::Compile::Cache->new(\@xsd,
@@ -230,29 +268,23 @@ sub reader($@)
         return $readers->{$type}
             if $readers->{$type};
     }
-    elsif($self->{XCC_undecl})
+    elsif($self->allowUndeclared)
     {   if(my $ur = $self->{XCC_uropts}{$type})
         {   my $differs = @$ur != @_;
             unless($differs)
-            {   for(my $i=0; $i<@$ur; $i++)
-                {   $differs++ if $ur->[$i] ne $_[$i];
-                }
-            }
+            { for(my $i=0; $i<@$ur; $i++) {$differs++ if $ur->[$i] ne $_[$i]} } 
 
-            error __x"undeclared reader {name} used with different options: before ({was}), now ({this})"
-              , name => $name, was => $ur, this => \@_
-                  if $differs;
+            # do not use cached version when options differ
+            return $self->_createReader($type, @_)
+                if $differs;
         }
         else
         {   $self->{XCC_uropts}{$type} = \@_;
         }
     }
     elsif(exists $self->{XCC_dwopts}{$type})
-    {   error __x"type {name} is only declared as writer", name => $name;
-    }
-    else
-    {   error __x"type {name} is not declared", name => $name;
-    }
+         { error __x"type {name} is only declared as writer", name => $name }
+    else { error __x"type {name} is not declared", name => $name }
 
     $readers->{$type} ||= $self->_createReader($type, @_);
 }
@@ -261,19 +293,16 @@ sub _createReader($@)
 {   my ($self, $type) = (shift, shift);
     trace "create reader for $type";
 
-    my @opts = $self->_merge_opts
-     ( {prefixes => $self->prefixes}
-     , $self->{XCC_opts}, $self->{XCC_ropts}
-     , \@_
-     );
-
-    $self->compile(READER => $type, @opts);
+    $self->compile(READER => $type,
+      , $self->mergeCompileOptions($self->{XCC_opts}
+          , $self->{XCC_ropts}, $self->{XCC_dropts}{$type}, \@_)
+      );
 }
 
 =method writer TYPE|NAME
-Returns the writer for the TYPE, which may be specified as prefixed NAME
-(see M<findName()>).  OPTIONS are only permitted if M<new(allow_undeclared)>
-is true, and the same as the previous call to this method.
+Returns the writer CODE for the TYPE or NAME (see M<findName()>).
+OPTIONS are only permitted if M<new(allow_undeclared)> is true, and the
+same as the previous call to this method.
 
 The writer will be compiled the first time that it is used, and that
 same CODE reference will be returned each next request for the same
@@ -305,14 +334,11 @@ sub writer($)
     {   if(my $ur = $self->{XCC_uwopts}{$type})
         {   my $differs = @$ur != @_;
             unless($differs)
-            {   for(my $i=0; $i<@$ur; $i++)
-                {   $differs++ if $ur->[$i] ne $_[$i];
-                }
-            }
+            { for(my $i=0; $i<@$ur; $i++) {$differs++ if $ur->[$i] ne $_[$i]} }
 
-            error __x"undeclared writer {name} used with different options: before ({was}), now ({this})"
-              , name => $name, was => $ur, this => \@_
-                  if $differs;
+            # do not use cached version when options differ
+            return $self->_createWriter($type, @_)
+                if $differs;
         }
         else
         {   $self->{XCC_uwopts}{$type} = \@_;
@@ -332,20 +358,57 @@ sub _createWriter($)
 {   my ($self, $type) = @_;
     
     trace "create writer for $type";
-    my @opts = $self->_merge_opts
-      ( {prefixes => $self->prefixes}
-      , $self->{XCC_opts}, $self->{XCC_wopts}
-      , \@_
+    $self->compile(WRITER => $type, $self->mergeCompileOptions
+       ($self->{XCC_opts}, $self->{XCC_wopts}, $self->{XCC_dwopts}{$type}, \@_)
       );
-    $self->compile(WRITER => $type, @opts);
 }
 
-# Create a list with options, from a list of ARRAYs and HASHES.  The last
-# ARRAY or HASH with a certain option value overwrites all previous values.
+# Create a list with options for X::C::Schema::compile(), from a list of ARRAYs
+# and HASHES with options.  The later options overrule the older, but in some
+# cases, the new values are added.  This method knows how some of the options
+# of ::compile() behave.  [last update X::C v0.98]
 
-sub _merge_opts(@)
+sub mergeCompileOptions(@)
 {   my $self = shift;
-    map { !defined $_ ? () : ref $_ eq 'ARRAY' ? @$_ : %$_ } @_;
+    my %p    = %{$self->{XCC_namespaces}};
+    my %opts = (prefixes => \%p, hooks => [], typemap => {});
+
+    # flatten list of parameters
+    my @take = map {!defined $_ ? () : ref $_ eq 'ARRAY' ? @$_ : %$_ } @_;
+
+    while(@take)
+    {   my ($opt, $val) = (shift @take, shift @take);
+        if($opt eq 'hook')
+        {   ($opt, $val) = (hooks => (ref $val eq 'ARRAY' ? {@$val} : $val));
+        }
+
+        if($opt eq 'prefixes')
+        {   my %t = $self->_namespaceTable($val, 1, 0);  # expand
+            @p{keys %t} = values %t;   # overwrite old def if exists
+        }
+        elsif($opt eq 'hooks')
+        {   my @hooks = ref $val eq 'ARRAY' ? @$val : defined $val ? $val : ();
+            foreach my $hook (grep {$_->{type}} @hooks)   # rewrite prefixed names
+            {   my $types = $hook->{type};
+                $hook->{type} =
+                  [ map {ref $_ eq 'Regexp' ? $_ : $self->findName($_)}
+                       ref $types eq 'ARRAY' ? @$types : $types ];
+            }
+            unshift @{$opts{hooks}}, @hooks;
+        }
+        elsif($opt eq 'typemap')
+        {   $val ||= {};
+            @{$opts{typemap}}{keys %$val} = values %$val;
+        }
+        elsif($opt eq 'key_rewrite')
+        {   unshift @{$opts{key_rewrite}}, ref $val eq 'ARRAY' ? @$val : $val;
+        }
+        else
+        {   $opts{$opt} = $val;
+        }
+    }
+
+    %opts;
 }
 
 sub _need($)
@@ -355,8 +418,13 @@ sub _need($)
    : error __x"use READER, WRITER or RW, not {dir}", dir => $_[1];
 }
 
-#----------------------
+# support 
+sub compile($$@)
+{   my ($self, $action, $type, @args) = @_;
+    $self->SUPER::compile($action, $self->findName($type), @args);
+}
 
+#----------------------
 =section Administration
 
 =method declare 'READER'|'WRITER'|'RW', TYPE|ARRAY-of-TYPES, OPTIONS
@@ -384,6 +452,8 @@ sub declare($$@)
 
     foreach my $name (ref $names eq 'ARRAY' ? @$names : $names)
     {   my $type = $self->findName($name);
+        trace "declare $type";
+
         if($need_r)
         {   defined $self->{XCC_dropts}{$type}
                and warning __x"reader {name} declared again", name => $name;
@@ -401,32 +471,45 @@ sub declare($$@)
 }
 
 =method findName NAME
-Translate the NAME specification into a schema type.  The NAME
-can be a full type (like '{namespace}localname', usually created
-with M<XML::Compile::Util::pack_type()>) or a prefixed type (like
-'myms:localname', defined with M<new(prefixes)> or M<prefixes()>).
+Translate the NAME specification into a schema defined full type.
+The NAME can be a full type (like '{namespace}localname', usually
+created with M<XML::Compile::Util::pack_type()>) or a prefixed type
+(like 'myns:localname', where C<myns> is defined via M<new(prefixes)>
+or M<prefixes()>).
 
+When the form is 'myns:' (so without local name), the namespace uri is
+returned.
+
+=examples of findName()
+  $schema->prefixes(pre => 'http://namespace');
+
+  my $type = $schema->findName('pre:name');
+  print $type;   # {http://namespace}name
+
+  my $ns   = $schema->findName('pre:');
+  print $ns;     # http://namespace
+
+  my $type = $schema->findName('{somens}name');
+  print $type;   # {somens}name    [a no-op]
 =cut
 
 sub findName($)
 {   my ($self, $name) = @_;
-defined $name or panic "findName";
+    defined $name
+        or panic "findName called without name";
 
-    my ($type, $ns, $local);
-    if($name =~ m/^\{/)
-    {   $type = $name;
-    }
-    else
-    {   (my $prefix,$local) = $name =~ m/^(\w*)\:(\S+)$/ ? ($1,$2) : ('',$name);
-        my $p  = $self->{XCC_prefix};
-        my $ns = first { $p->{$_}{prefix} eq $prefix } keys %$p;
-        defined $ns
-            or error __x"unknown name prefix for `{name}'", name => $name;
+    return $name if $name =~ m/^\{/;
 
-        $type  = pack_type $ns, $local;
+    my ($prefix,$local) = $name =~ m/^([\w-]*)\:(\S*)$/ ? ($1,$2) : ('',$name);
+    my $def = $self->{XCC_prefixes}{$prefix};
+    unless($def)
+    {   return $name if $prefix eq '';   # namespace-less
+        trace __x"known prefixes: {prefixes}"
+          , prefixes => [ sort keys %{$self->{XCC_prefixes}} ];
+        error __x"unknown name prefix for `{name}'", name => $name;
     }
 
-    $type;
+    length $local ? pack_type($def->{uri}, $local) : $def->{uri};
 }
 
 =method printIndex [FILEHANDLE], OPTIONS
@@ -477,15 +560,16 @@ sub printIndex(@)
 # Convert ANY elements and attributes
 
 sub _convertAnyElementReader(@)
-{   my ($self, $type, $nodes, $path, $args) = @_;
+{   my ($self, $type, $nodes, $path, $read, $args) = @_;
 
     my $reader  = try { $self->reader($type) };
     !$@ && $reader or return ($type => $nodes);
 
     my @nodes   = ref $nodes eq 'ARRAY' ? @$nodes : $nodes;
     my @convert = map {$reader->($_)} @nodes;
-    ($type => (ref $nodes eq 'ARRAY' ? $convert[0] : \@convert));
-}
 
+    my $key     = $read->keyRewrite($type);
+    ($key => @convert==1 ? $convert[0] : \@convert);
+}
 
 1;

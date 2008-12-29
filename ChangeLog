@@ -1,6 +1,49 @@
 
 ==== version history of XML::Compile::Cache
 
+TODO
+. auto-type
+
+version 0.14: Mon Dec 29 10:59:22 CET 2008
+
+	Fixes:
+
+	- any_element ATTEMPT needs to follow keyRewrite rules
+
+	- _createReader() and _createWriter() missed type dependend options
+	  in merge.
+
+	- accept namespace-less names in findName()
+
+	Improvements:
+
+	- one namespace may have multiple prefixes, only the first is
+	  used in the output.
+
+	- type-based hooks can now also use prefixes.
+
+	- the options used for X::C::Schema::compile() are not merged
+	  in a very clever way.
+
+	- findName() can now also translates prefixes into namespaces,
+	  not only translate prefixed types.  Report available choices
+	  when an unknown prefix is used.
+
+	- findName() allow '-' in prefix.
+
+	- new method prefix() to lookup a prefix.  One namespace can have
+	  multiple prefixes, of which the first is used for the output.
+
+	- new method prefixFor() to lookup prefix for URI.
+
+	- support findName() with compile()
+
+	- when an undeclared reader or writer is produced with different
+	  options, then which will not produce an error but just avoids
+	  the use of the cached code.
+
+	- new method mergeCompileOptions()
+
 version 0.13: Fri Aug  1 13:21:09 CEST 2008
 
 	Changes:

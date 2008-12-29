@@ -3,7 +3,7 @@ use warnings;
 use strict;
 
 use lib 'lib';
-use Test::More tests => 45;
+use Test::More tests => 43;
 
 use XML::Compile::Util qw/SCHEMA2001 pack_type/;
 use Log::Report 'try';
@@ -162,11 +162,6 @@ compare_xml($v5b, '<test4>46</test4>');
 
 my $w5b = $cache->writer('me:test4');
 cmp_ok($w5b, '==', $w5, 'cached code ref');
-
-my $w5c = try { $cache->writer('me:test4', option => 1) };
-$msg = $@ ? $@->wasFatal->message : '';
-ok(!defined $w5c, 'undeclared writer for test4 already created');
-is($msg, 'undeclared writer me:test4 used with different options: before (), now (option 1)');
 
 $list = list_declared($cache);
 is($list, <<__LIST, 'all are compiled');
