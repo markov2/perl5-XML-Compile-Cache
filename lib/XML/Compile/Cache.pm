@@ -130,8 +130,11 @@ sub init($)
 
     if(my $anyelem = $args->{any_element})
     {   if($anyelem eq 'ATTEMPT')
-        {   push @{$self->{XCC_ropts}}
-              , any_element => sub {$self->_convertAnyElementReader(@_)};
+        {   my $code = sub {$self->_convertAnyElementReader(@_)};
+            if(ref $self->{XCC_ropts} eq 'ARRAY')
+            {   push @{$self->{XCC_ropts}}, any_element => $code }
+            else
+            {   $self->{XCC_ropts}{any_element} = $code }
         }
     }
 
@@ -142,7 +145,7 @@ sub init($)
 
 =section Accessors
 
-=method prefixes [PAIRS]
+=method prefixes [PAIRS|ARRAY|HASH]
 Returns the HASH with prefix to name-space translations.  You should not
 modify the returned HASH.  New PAIRS of prefix to namespace relations
 can be passed.
@@ -151,13 +154,24 @@ can be passed.
 If a name-space appears for the second time, then the new prefix will be
 recognized by M<findName()>, but not used in the output.  When the prefix
 already exists for a different namespace, then an error will be casted.
+
+[0.90]
+You may also provide an ARRAY of pairs or a HASH.
 =cut
 
 sub prefixes(@)
 {   my $self = shift;
     my ($p, $a) = @$self{ qw/XCC_namespaces XCC_prefixes/ };
-    while(@_)
-    {   my ($prefix, $ns) = (shift, shift);
+    @_ or return $p;
+
+    my @pairs
+      = @_ > 1               ? @_
+      : ref $_[0] eq 'ARRAY' ? @{$_[0]}
+      : ref $_[0] eq 'HASH'  ? %{$_[0]}
+      : error __x"prefixes() expects list of PAIRS, and ARRAY or a HASH";
+
+    while(@pairs)
+    {   my ($prefix, $ns) = (shift @pairs, shift @pairs);
         $p->{$ns} ||= { uri => $ns, prefix => $prefix, used => 0 };
 
         if(my $def = $a->{$prefix})
@@ -378,23 +392,14 @@ sub mergeCompileOptions(@)
 
     while(@take)
     {   my ($opt, $val) = (shift @take, shift @take);
-        if($opt eq 'hook')
-        {   ($opt, $val) = (hooks => (ref $val eq 'ARRAY' ? {@$val} : $val));
-        }
-
         if($opt eq 'prefixes')
         {   my %t = $self->_namespaceTable($val, 1, 0);  # expand
             @p{keys %t} = values %t;   # overwrite old def if exists
         }
-        elsif($opt eq 'hooks')
-        {   my @hooks = ref $val eq 'ARRAY' ? @$val : defined $val ? $val : ();
-            foreach my $hook (grep {$_->{type}} @hooks)   # rewrite prefixed names
-            {   my $types = $hook->{type};
-                $hook->{type} =
-                  [ map {ref $_ eq 'Regexp' ? $_ : $self->findName($_)}
-                       ref $types eq 'ARRAY' ? @$types : $types ];
-            }
-            unshift @{$opts{hooks}}, @hooks;
+        elsif($opt eq 'hooks' || $opt eq 'hook')
+        {   my $hooks = @{$self->_cleanup_hooks($val)};
+            unshift @{$opts{hooks}}, ref $hooks eq 'ARRAY' ? @$hooks : $hooks
+                if $hooks;
         }
         elsif($opt eq 'typemap')
         {   $val ||= {};
@@ -411,6 +416,20 @@ sub mergeCompileOptions(@)
     %opts;
 }
 
+# rewrite hooks
+sub _cleanup_hooks($)
+{   my ($self, $hooks) = @_;
+    $hooks or return;
+
+    foreach my $hook (ref $hooks eq 'ARRAY' ? @$hooks : $hooks)
+    {   my $types = $hook->{type} or next;
+        $hook->{type} =
+           [ map {ref $_ eq 'Regexp' ? $_ : $self->findName($_)}
+                       ref $types eq 'ARRAY' ? @$types : $types ];
+    }
+    $hooks;
+}
+
 sub _need($)
 {    $_[1] eq 'READER' ? (1,0)
    : $_[1] eq 'WRITER' ? (0,1)
@@ -418,10 +437,26 @@ sub _need($)
    : error __x"use READER, WRITER or RW, not {dir}", dir => $_[1];
 }
 
-# support 
+# support prefixes on types
+sub addHook(@)
+{   my $self = shift;
+    my $hook = @_ > 1 ? {@_} : shift;
+    $self->_cleanup_hooks($hook);
+    $self->SUPER::addHook($hook);
+}
+
 sub compile($$@)
-{   my ($self, $action, $type, @args) = @_;
-    $self->SUPER::compile($action, $self->findName($type), @args);
+{   my ($self, $action, $type, %args) = @_;
+    $self->_cleanup_hooks($args{hook});
+    $self->_cleanup_hooks($args{hooks});
+    $self->SUPER::compile($action, $self->findName($type), %args);
+}
+
+sub template($$@)
+{   my ($self, $action, $type, %args) = @_;
+    $self->_cleanup_hooks($args{hook});
+    $self->_cleanup_hooks($args{hooks});
+    $self->SUPER::template($action, $self->findName($type), %args);
 }
 
 #----------------------

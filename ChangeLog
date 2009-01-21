@@ -1,8 +1,21 @@
 
 ==== version history of XML::Compile::Cache
 
-TODO
-. auto-type
+version 0.90: Wed Jan 21 11:03:19 CET 2009
+
+	Fixes:
+
+	- be more careful that opt_* flags may be passed as either ARRAY or
+	  HASH.
+
+	Improvements:
+
+	- template: accept prefixed types.
+
+	- accept prefixes in type-based hooks, for compile(),
+	  template() and addHook().
+
+	- prefixes() accepts HASH and ARRAY as well
 
 version 0.14: Mon Dec 29 10:59:22 CET 2008
 
@@ -29,7 +42,7 @@ version 0.14: Mon Dec 29 10:59:22 CET 2008
 	  not only translate prefixed types.  Report available choices
 	  when an unknown prefix is used.
 
-	- findName() allow '-' in prefix.
+	- findName() allows '-' in prefix.
 
 	- new method prefix() to lookup a prefix.  One namespace can have
 	  multiple prefixes, of which the first is used for the output.
