@@ -4,4 +4,4 @@ Makefile.PL
 lib/XML/Compile/Cache.pm
 t/01use.t
 t/10declare.t
-t/pod.t
+t/99pod.t

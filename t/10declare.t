@@ -74,7 +74,7 @@ __LIST
 my $r1 = $cache->reader('me:test1');
 ok(defined $r1, 'got reader test1');
 isa_ok($r1, 'CODE');
-my $v1 = $r1->("<test1>42</test1>");
+my $v1 = $r1->("<me:test1 xmlns:me=\"$TestNS\">42</me:test1>");
 cmp_ok($v1, '==', 42, 'test parsing');
 
 my $r1b = $cache->reader('me:test1');
@@ -90,7 +90,7 @@ is($msg, 'type me:test1 is only declared as reader');
 my $r2 = $cache->reader('me:test2');
 ok(defined $r2, 'got reader test2');
 isa_ok($r2, 'CODE');
-my $v2 = $r2->("<test2>44</test2>");
+my $v2 = $r2->("<me:test2 xmlns:me=\"$TestNS\">44</me:test2>");
 cmp_ok($v2, '==', 44, 'test parsing');
 
 my $r2b = $cache->reader('me:test2');
@@ -102,7 +102,7 @@ isa_ok($w2, 'CODE');
 
 $v2 = $w2->($doc, 44);
 isa_ok($v2, 'XML::LibXML::Element');
-compare_xml($v2, '<test2>44</test2>');
+compare_xml($v2, "<me:test2 xmlns:me=\"$TestNS\">44</me:test2>"); 
 
 my $w2b = $cache->writer('me:test2');
 cmp_ok($w2b, '==', $w2, 'cached code ref');
@@ -115,7 +115,7 @@ isa_ok($w3, 'CODE');
 
 my $v3 = $w3->($doc, 43);
 isa_ok($v3, 'XML::LibXML::Element');
-compare_xml($v3, '<test3>43</test3>');
+compare_xml($v3, "<me:test3 xmlns:me=\"$TestNS\">43</me:test3>");
 
 my $w3b = $cache->writer('me:test3');
 cmp_ok($w3b, '==', $w3, 'cached code ref');
@@ -146,7 +146,7 @@ ok($cache->allowUndeclared,    'allow undeclared');
 my $r5 = $cache->reader('me:test4');
 ok(defined $r5, 'got reader test4');
 isa_ok($r5, 'CODE');
-my $v5 = $r5->("<test4>45</test4>");
+my $v5 = $r5->("<me:test4 xmlns:me=\"$TestNS\">45</me:test4>");
 cmp_ok($v5, '==', 45, 'test parsing');
 
 my $r5b = $cache->reader('me:test4');
@@ -158,7 +158,7 @@ isa_ok($w5, 'CODE');
 
 my $v5b = $w5->($doc, 46);
 isa_ok($v5b, 'XML::LibXML::Element');
-compare_xml($v5b, '<test4>46</test4>');
+compare_xml($v5b, "<me:test4 xmlns:me=\"$TestNS\">46</me:test4>");
 
 my $w5b = $cache->writer('me:test4');
 cmp_ok($w5b, '==', $w5, 'cached code ref');

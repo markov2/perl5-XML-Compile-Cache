@@ -397,7 +397,7 @@ sub mergeCompileOptions(@)
             @p{keys %t} = values %t;   # overwrite old def if exists
         }
         elsif($opt eq 'hooks' || $opt eq 'hook')
-        {   my $hooks = @{$self->_cleanup_hooks($val)};
+        {   my $hooks = $self->_cleanup_hooks($val);
             unshift @{$opts{hooks}}, ref $hooks eq 'ARRAY' ? @$hooks : $hooks
                 if $hooks;
         }
@@ -588,7 +588,7 @@ sub printIndex(@)
           = $self->{XCC_writers}{$type} ? 'W'
           : $self->{XCC_dwopts}{$type}  ? 'w' : ' ';
     }
-    print $fh @output;
+    $fh->print(@output);
 }
 
 #---------------
@@ -598,6 +598,7 @@ sub _convertAnyElementReader(@)
 {   my ($self, $type, $nodes, $path, $read, $args) = @_;
 
     my $reader  = try { $self->reader($type) };
+#warn "TRY CONVERT $type; $@" if $@;
     !$@ && $reader or return ($type => $nodes);
 
     my @nodes   = ref $nodes eq 'ARRAY' ? @$nodes : $nodes;

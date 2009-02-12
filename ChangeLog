@@ -1,6 +1,16 @@
 
 ==== version history of XML::Compile::Cache
 
+version 0.91: Thu Feb 12 11:27:40 CET 2009
+
+	Fixes:
+
+	- cleanup of multiple hooks was broken.
+
+	- do not use /bin/pwd in t/pod.t
+
+	- fix tests wrt changes in XML::Compile 1.01
+
 version 0.90: Wed Jan 21 11:03:19 CET 2009
 
 	Fixes:
