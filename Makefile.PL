@@ -4,7 +4,7 @@ use 5.008;
 
 WriteMakefile
  ( NAME	 	=> 'XML::Compile::Cache'
- , VERSION	=> '0.91'
+ , VERSION	=> '0.92'
  , PREREQ_PM    =>
    { XML::Compile              => 1.02
    , XML::Compile::Tester      => 0.02

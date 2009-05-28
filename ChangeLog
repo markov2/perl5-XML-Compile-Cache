@@ -1,6 +1,17 @@
 
 ==== version history of XML::Compile::Cache
 
+version 0.92: Thu May 28 11:51:50 CEST 2009
+
+	Improvements:
+
+	- error if template() and compile() are called with too few
+	  parameters.
+
+	- trace when new prefixes get defined.
+
+	- new method prefixed()
+
 version 0.91: Thu Feb 12 11:27:40 CET 2009
 
 	Fixes:
