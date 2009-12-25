@@ -8,6 +8,7 @@ use Log::Report 'xml-compile-cache', syntax => 'SHORT';
 
 use XML::Compile::Util   qw/pack_type unpack_type/;
 use List::Util           qw/first/;
+use XML::LibXML::Simple  qw/XMLin/;
 
 =chapter NAME
 XML::Compile::Cache - Cache compiled XML translators
@@ -24,7 +25,7 @@ XML::Compile::Cache - Cache compiled XML translators
  $cache->compileAll('RW');
 
  # get the cached code ref for the reader
- my $reader = $cache->reader($type);
+ my $reader = $cache->reader($type, @opts);
  use Data::Dumper;
  print Dumper $reader->($xml);
 
@@ -37,6 +38,11 @@ XML::Compile::Cache - Cache compiled XML translators
  my $do = $cache->compile(READER => $type, @opts);
 
 =chapter DESCRIPTIONS
+C<XML::Compile::Cache> is the smart brother of M<XML::Compile::Schema>;
+it keeps track of your compiled readers and writers, and also helps
+you administer the parameters to handle compilation.  Besides, it
+lat you use easy prefixes instead of full namespaces.
+
 With M<XML::Compile::Schema::compile()> (defined in the SUPER class of
 this module) you can construct translators from XML to Perl and back.
 These translators are code references, which are "expensive" to create,
@@ -44,16 +50,16 @@ but "cheap" in use; call them as often as you want.  This module helps
 you administer them.
 
 When the schemas grow larger, it gets harder to see which code reference
-have already be created and which not.  And, these code references need
+have already be created and which not. And, these code references need
 compile options which you do not want to distribute over your whole
 program.  Finally, in a daemon application, you do not want to create
 the translators when used (which can be in every client again), but once
 during the initiation of the daemon.
 
 One of the most important contributions to the compile management, is
-the addition of smart prefix handling.  This means that you can use
+the addition of smart prefix handling. This means that you can use
 prefixed names in stead of full types, often created with
-M<XML::Compile::SOAP::Util::pack_type()>.
+M<XML::Compile::Util::pack_type()>.
 
 =chapter METHODS
 
@@ -98,10 +104,15 @@ not registered with M<declare()>.  In that case, the reader or
 writer may also get options passed for the compiler, as long as
 they are consistent over each use of the type.
 
-=option  any_element CODE|'TAKE_ALL'|'SKIP_ALL'|'ATTEMPT'
+=option  any_element CODE|'TAKE_ALL'|'SKIP_ALL'|'ATTEMPT'|'SLOPPY'
 =default any_element 'SKIP_ALL'
-ATTEMPT will convert all any elements, applying the reader for
-each element found.
+reader: C<ATTEMPT> will convert all any elements, applying the reader for
+each element found. When an element is not found in a schema, it will
+be included as M<XML::LibXML::Element> node.
+
+[0.93] reader: With C<SLOPPY>, first automatic typed conversion is
+attempted. But is the type is not known, M<XML::LibXML::Simple::XMLin()>
+is called to the resque.
 =cut
 
 sub init($)
@@ -129,13 +140,13 @@ sub init($)
     $self->{XCC_prefixes} = \%a;
 
     if(my $anyelem = $args->{any_element})
-    {   if($anyelem eq 'ATTEMPT')
-        {   my $code = sub {$self->_convertAnyElementReader(@_)};
-            if(ref $self->{XCC_ropts} eq 'ARRAY')
-            {   push @{$self->{XCC_ropts}}, any_element => $code }
-            else
-            {   $self->{XCC_ropts}{any_element} = $code }
-        }
+    {   my $code = $anyelem eq 'ATTEMPT' ? sub {$self->_convertAnyTyped(@_)}
+                 : $anyelem eq 'SLOPPY'  ? sub {$self->_convertAnySloppy(@_)}
+                 :                         $anyelem;
+
+        if(ref $self->{XCC_ropts} eq 'ARRAY')
+             { push @{$self->{XCC_ropts}}, any_element => $code }
+        else { $self->{XCC_ropts}{any_element} = $code }
     }
 
     $self;
@@ -293,7 +304,7 @@ sub reader($@)
     my $readers = $self->{XCC_readers};
 
     if(exists $self->{XCC_dropts}{$type})
-    {   warn __x"ignoring options to pre-declared reader {name}"
+    {   trace __x"ignoring options to pre-declared reader {name}"
           , name => $name if @_;
 
         return $readers->{$type}
@@ -355,7 +366,7 @@ sub writer($)
     my $writers = $self->{XCC_writers};
 
     if(exists $self->{XCC_dwopts}{$type})
-    {   warn __x"ignoring options to pre-declared writer {name}"
+    {   trace __x"ignoring options to pre-declared writer {name}"
           , name => $name if @_;
 
         return $writers->{$type}
@@ -394,6 +405,19 @@ sub _createWriter($)
       );
 }
 
+sub template($$)
+{   my ($self, $action, $name) = (shift, shift, shift);
+    my $type   = $self->findName($name);
+
+    my @rwopts = $action eq 'PERL'
+      ? ($self->{XCC_ropts}, $self->{XCC_dropts}{$type})
+      : ($self->{XCC_wopts}, $self->{XCC_dwopts}{$type});
+
+    my @opts = $self->mergeCompileOptions($self->{XCC_opts}, @rwopts, \@_);
+
+    $self->SUPER::template($action, $type, @opts);
+}
+
 # Create a list with options for X::C::Schema::compile(), from a list of ARRAYs
 # and HASHES with options.  The later options overrule the older, but in some
 # cases, the new values are added.  This method knows how some of the options
@@ -402,13 +426,15 @@ sub _createWriter($)
 sub mergeCompileOptions(@)
 {   my $self = shift;
     my %p    = %{$self->{XCC_namespaces}};
-    my %opts = (prefixes => \%p, hooks => [], typemap => {});
+    my %opts = (prefixes => \%p, hooks => [], typemap => {}, xsi_type => {});
 
     # flatten list of parameters
     my @take = map {!defined $_ ? () : ref $_ eq 'ARRAY' ? @$_ : %$_ } @_;
 
     while(@take)
     {   my ($opt, $val) = (shift @take, shift @take);
+        defined $val or next;
+
         if($opt eq 'prefixes')
         {   my %t = $self->_namespaceTable($val, 1, 0);  # expand
             @p{keys %t} = values %t;   # overwrite old def if exists
@@ -424,6 +450,13 @@ sub mergeCompileOptions(@)
         }
         elsif($opt eq 'key_rewrite')
         {   unshift @{$opts{key_rewrite}}, ref $val eq 'ARRAY' ? @$val : $val;
+        }
+        elsif($opt eq 'xsi_type')
+        {   while(my ($t, $a) = each %$val)
+            {   my @a = ref $a eq 'ARRAY' ? @$a : $a;
+                push @{$opts{xsi_type}{$self->findName($t)}}
+                   , map $self->findName($_), @a;
+            }
         }
         else
         {   $opts{$opt} = $val;
@@ -470,16 +503,6 @@ sub compile($$@)
     $self->_cleanup_hooks($args{hook});
     $self->_cleanup_hooks($args{hooks});
     $self->SUPER::compile($action, $self->findName($type), %args);
-}
-
-sub template($$@)
-{   my ($self, $action, $type, %args) = @_;
-    error __x"template() requires action and type parameters"
-        if @_ < 3;
-
-    $self->_cleanup_hooks($args{hook});
-    $self->_cleanup_hooks($args{hooks});
-    $self->SUPER::template($action, $self->findName($type), %args);
 }
 
 #----------------------
@@ -617,21 +640,40 @@ sub printIndex(@)
 #---------------
 # Convert ANY elements and attributes
 
-sub _convertAnyElementReader(@)
+sub _convertAnyTyped(@)
 {   my ($self, $type, $nodes, $path, $read, $args) = @_;
 
+    my $key     = $read->keyRewrite($type);
     my $reader  = try { $self->reader($type) };
     if($@)
-    {   trace "cannot auto-convert 'any' $type: ".$@->wasFatal->message;
-        return ($type => $nodes);
+    {   trace "cannot auto-convert 'any': ".$@->wasFatal->message;
+        return ($key => $nodes);
     }
-    trace "auto-convert 'any' $type";
+    trace "auto-convert known type 'any' $type";
 
     my @nodes   = ref $nodes eq 'ARRAY' ? @$nodes : $nodes;
     my @convert = map {$reader->($_)} @nodes;
 
-    my $key     = $read->keyRewrite($type);
     ($key => @convert==1 ? $convert[0] : \@convert);
+}
+
+sub _convertAnySloppy(@)
+{   my ($self, $type, $nodes, $path, $read, $args) = @_;
+
+    my $key     = $read->keyRewrite($type);
+    my $reader  = try { $self->reader($type) };
+    if($@)
+    {   # unknown type or untyped...
+        my @convert = map {XMLin $_} @$nodes;
+        return ($key => @convert==1 ? $convert[0] : \@convert);
+    }
+    else
+    {   trace "auto-convert known 'any' $type";
+        my @nodes   = ref $nodes eq 'ARRAY' ? @$nodes : $nodes;
+        my @convert = map {$reader->($_)} @nodes;
+
+        ($key => @convert==1 ? $convert[0] : \@convert);
+    }
 }
 
 1;
