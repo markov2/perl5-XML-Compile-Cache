@@ -1,6 +1,14 @@
 
 ==== version history of XML::Compile::Cache
 
+version 0.94: Tue Mar  2 09:18:38 CET 2010
+
+	Fixes:
+
+	- default need for compileAll() not handled.
+
+	- merging of prefixes parameter.
+
 version 0.93: Fri Dec 25 01:05:59 CET 2009
 
 	Fixes:

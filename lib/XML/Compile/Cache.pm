@@ -137,7 +137,7 @@ sub init($)
     my $p = $self->{XCC_namespaces}
           = $self->_namespaceTable(delete $args->{prefixes});
     my %a = map { ($_->{prefix} => $_) } values %$p;
-    $self->{XCC_prefixes} = \%a;
+    $self->{XCC_prefixes} = keys %$p ? \%a : $p;
 
     if(my $anyelem = $args->{any_element})
     {   my $code = $anyelem eq 'ATTEMPT' ? sub {$self->_convertAnyTyped(@_)}
@@ -257,7 +257,7 @@ much time as they want to... and running should be as fast as possible.
 
 sub compileAll(;$$)
 {   my ($self, $need, $usens) = @_;
-    my ($need_r, $need_w) = $self->_need($need);
+    my ($need_r, $need_w) = $self->_need($need || 'RW');
 
     if($need_r)
     {   while(my($type, $opts) = each %{$self->{XCC_dropts}})
@@ -436,8 +436,8 @@ sub mergeCompileOptions(@)
         defined $val or next;
 
         if($opt eq 'prefixes')
-        {   my %t = $self->_namespaceTable($val, 1, 0);  # expand
-            @p{keys %t} = values %t;   # overwrite old def if exists
+        {   my $t = $self->_namespaceTable($val, 1, 0);  # expand
+            @p{keys %$t} = values %$t;   # overwrite old def if exists
         }
         elsif($opt eq 'hooks' || $opt eq 'hook')
         {   my $hooks = $self->_cleanup_hooks($val);
