@@ -1,6 +1,16 @@
 
 ==== version history of XML::Compile::Cache
 
+version 0.95: Thu Apr  1 11:36:42 CEST 2010
+
+	Changes:
+
+	- handling of compile() and mergeCompileOptions()
+
+	Improvements:
+
+	- support for compileType()
+
 version 0.94: Tue Mar  2 09:18:38 CET 2010
 
 	Fixes:
