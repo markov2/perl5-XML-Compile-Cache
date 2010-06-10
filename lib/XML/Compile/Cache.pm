@@ -8,6 +8,7 @@ use Log::Report 'xml-compile-cache', syntax => 'SHORT';
 
 use XML::Compile::Util   qw/pack_type unpack_type/;
 use List::Util           qw/first/;
+use Scalar::Util         qw/weaken/;
 use XML::LibXML::Simple  qw/XMLin/;
 
 =chapter NAME
@@ -140,8 +141,12 @@ sub init($)
     $self->{XCC_prefixes} = keys %$p ? \%a : $p;
 
     if(my $anyelem = $args->{any_element})
-    {   my $code = $anyelem eq 'ATTEMPT' ? sub {$self->_convertAnyTyped(@_)}
-                 : $anyelem eq 'SLOPPY'  ? sub {$self->_convertAnySloppy(@_)}
+    {   # the "$self" in XCC_ropts would create a ref-cycle, causing a
+        # memory leak.
+        my $s = $self; weaken $s;
+
+        my $code = $anyelem eq 'ATTEMPT' ? sub {$s->_convertAnyTyped(@_)}
+                 : $anyelem eq 'SLOPPY'  ? sub {$s->_convertAnySloppy(@_)}
                  :                         $anyelem;
 
         if(ref $self->{XCC_ropts} eq 'ARRAY')
@@ -298,6 +303,16 @@ TYPE.  Call M<compileAll()> to have all readers compiled by force.
   my $data   = $getmem->($xml);
 =cut
 
+sub _same_params($$)
+{   my ($f, $s) = @_;
+    @$f==@$s or return 0;
+    for(my $i=0; $i<@$f; $i++)
+    {   return 0 if !defined $f->[$i] ? defined $s->[$i]
+                  : !defined $s->[$i] ? 1 : $f->[$i] ne $s->[$i];
+    }
+    1;
+}
+
 sub reader($@)
 {   my ($self, $name) = (shift, shift);
     my $type    = $self->findName($name);
@@ -312,13 +327,9 @@ sub reader($@)
     }
     elsif($self->allowUndeclared)
     {   if(my $ur = $self->{XCC_uropts}{$type})
-        {   my $differs = @$ur != @_;
-            unless($differs)
-            { for(my $i=0; $i<@$ur; $i++) {$differs++ if $ur->[$i] ne $_[$i]} } 
-
-            # do not use cached version when options differ
-            return $self->compile(READER => $type, @_)
-                if $differs;
+        {   # do not use cached version when options differ
+            _same_params $ur, \@_
+                or return $self->compile(READER => $type, @_);
         }
         else
         {   $self->{XCC_uropts}{$type} = \@_;
@@ -364,13 +375,9 @@ sub writer($)
     }
     elsif($self->{XCC_undecl})
     {   if(my $ur = $self->{XCC_uwopts}{$type})
-        {   my $differs = @$ur != @_;
-            unless($differs)
-            { for(my $i=0; $i<@$ur; $i++) {$differs++ if $ur->[$i] ne $_[$i]} }
-
-            # do not use cached version when options differ
-            return $self->compile(WRITER => $type, @_)
-                if $differs;
+        {   # do not use cached version when options differ
+            _same_params $ur, \@_
+                or return $self->compile(WRITER => $type, @_)
         }
         else
         {   $self->{XCC_uwopts}{$type} = \@_;
@@ -648,7 +655,7 @@ sub printIndex(@)
 # Convert ANY elements and attributes
 
 sub _convertAnyTyped(@)
-{   my ($self, $type, $nodes, $path, $read, $args) = @_;
+{   my ($self, $type, $nodes, $path, $read) = @_;
 
     my $key     = $read->keyRewrite($type);
     my $reader  = try { $self->reader($type) };
@@ -665,7 +672,7 @@ sub _convertAnyTyped(@)
 }
 
 sub _convertAnySloppy(@)
-{   my ($self, $type, $nodes, $path, $read, $args) = @_;
+{   my ($self, $type, $nodes, $path, $read) = @_;
 
     my $key     = $read->keyRewrite($type);
     my $reader  = try { $self->reader($type) };

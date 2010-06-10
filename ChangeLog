@@ -1,6 +1,24 @@
 
 ==== version history of XML::Compile::Cache
 
+version 0.96: Thu Jun 10 16:05:05 CEST 2010
+
+	Fixes:
+
+	- do not spit warnings when "allow_undeclared" and the parameter
+	  list contains undefined values. Reported by [Robin V.]
+
+	- memory leak, caused by rewrite of any_element
+	  rt.cpan.org#57943 [Jacob Bunk Nielsen]
+
+	- repair tests, to work with changed interface of Test::More.
+	  [cpantesters]
+
+	- fix docs: compileClient() does not accept parameters for
+	  compile() because those settings cannot be passed to elements
+	  which are magically understood via "any_element => 'ATTEMPT'"
+	  Problem reported by [Knut Arne Bjørndal]
+
 version 0.95: Thu Apr  1 11:36:42 CEST 2010
 
 	Changes:

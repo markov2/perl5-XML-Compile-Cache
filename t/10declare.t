@@ -83,7 +83,7 @@ cmp_ok($r1b, '==', $r1, 'cached code ref');
 my $w1 = try { $cache->writer('me:test1') };
 my $msg = $@ ? $@->wasFatal->message : '';
 ok(!defined $w1, 'no writer for test1 declared');
-is($msg, 'type me:test1 is only declared as reader');
+is($msg->toString, 'type me:test1 is only declared as reader');
 
 # reader and writer
 
@@ -123,19 +123,19 @@ cmp_ok($w3b, '==', $w3, 'cached code ref');
 my $r3 = try { $cache->reader('me:test3') };
 $msg   = $@ ? $@->wasFatal->message : '';
 ok(!defined $r3, 'no reader for test3 declared');
-is($msg, 'type me:test3 is only declared as writer');
+is($msg->toString, 'type me:test3 is only declared as writer');
 
 # No reader nor writer
 
 my $r4 = try { $cache->reader('me:test4') };
 $msg   = $@ ? $@->wasFatal->message : '';
 ok(!defined $r4, 'no reader for test4 declared');
-is($msg, 'type me:test4 is not declared');
+is($msg->toString, 'type me:test4 is not declared');
 
 my $w4 = try { $cache->writer('me:test4') };
 $msg = $@ ? $@->wasFatal->message : '';
 ok(!defined $w4, 'no writer for test4 declared');
-is($msg, 'type me:test4 is not declared');
+is($msg->toString, 'type me:test4 is not declared');
 
 # Allow undeclared
 
