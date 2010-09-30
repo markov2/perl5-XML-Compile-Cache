@@ -1,6 +1,19 @@
 
 ==== version history of XML::Compile::Cache
 
+version 0.97: Thu Sep 30 17:09:34 CEST 2010
+
+	Fixes:
+
+	- template() merging options
+
+	Improvements:
+
+	- trace: declare includes why: READER/WRITER/RW
+
+	- prefixed() will return undef not error when there is no
+	  prefix defined for the namespace.
+
 version 0.96: Thu Jun 10 16:05:05 CEST 2010
 
 	Fixes:
