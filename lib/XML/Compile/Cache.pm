@@ -86,6 +86,12 @@ processing, you will need to specify a HASH.
  prefixes => { $myns => [ uri => $myns, prefix => 'mine', used => 0 ]
              , $yourns => [ uri => $yourns, prefix => 'your', ...] }
 
+=option  typemap HASH|ARRAY
+=default typemap {}
+
+=option  xsi_type HASH|ARRAY
+=default xsi_type {}
+
 =option  opts_rw HASH|ARRAY-of-PAIRS
 =default opts_rw []
 Options added to both READERs and WRITERS.  Options which are passed
@@ -125,11 +131,11 @@ sub init($)
     $self->{XCC_wopts}  = delete $args->{opts_writers} || [];
     $self->{XCC_undecl} = delete $args->{allow_undeclared} || 0;
 
-    $self->{XCC_rcode}  = {};
+    $self->{XCC_rcode}  = {};  # compiled code refs
     $self->{XCC_wcode}  = {};
-    $self->{XCC_dropts} = {};
+    $self->{XCC_dropts} = {};  # declared opts
     $self->{XCC_dwopts} = {};
-    $self->{XCC_uropts} = {};
+    $self->{XCC_uropts} = {};  # undeclared opts
     $self->{XCC_uwopts} = {};
 
     $self->{XCC_readers} = {};
@@ -139,6 +145,8 @@ sub init($)
           = $self->_namespaceTable(delete $args->{prefixes});
     my %a = map { ($_->{prefix} => $_) } values %$p;
     $self->{XCC_prefixes} = keys %$p ? \%a : $p;
+    $self->typemap($args->{typemap});
+    $self->xsiType($args->{xsi_type});
 
     if(my $anyelem = $args->{any_element})
     {   # the "$self" in XCC_ropts would create a ref-cycle, causing a
@@ -239,6 +247,40 @@ sub prefixed($)
     length $prefix ? "$prefix:$local" : $local;
 }
 
+=method typemap [HASH|ARRAY|PAIRS]
+[0.98] Add global knowledge on typemaps.  Returns the typemap.
+=cut
+
+sub typemap(@)
+{   my $self = shift;
+    my $t    = $self->{XCC_typemap} ||= {};
+    my @d    = @_ > 1 ? @_ : !defined $_[0] ? ()
+             : ref $_[0] eq 'HASH' ? %{$_[0]} : @{$_[0]};
+    while(@d) { my $k = $self->findName(shift @d); $t->{$k} = shift @d }
+    $t;
+}
+
+=method xsiType [HASH|ARRAY|LIST]
+[0.98] add global xsi_type declarations.  Returns the xsiType set.
+=cut
+
+sub xsiType(@)
+{   my $self = shift;
+    my $x    = $self->{XCC_xsi_type} ||= {};
+
+    my @d    = @_ > 1 ? @_ : !defined $_[0] ? ()
+             : ref $_[0] eq 'HASH' ? %{$_[0]} : @{$_[0]};
+
+    while(@d)
+    {   my $k = $self->findName(shift @d);
+        my $a = shift @d;
+        push @{$x->{$k}}, ref $a eq 'ARRAY' ? map ($self->findName($_), @$a)
+          : $self->findName($a);
+    }
+
+    $x;
+}
+
 =method allowUndeclared [BOOLEAN]
 Whether it is permitted to create readers and writers which are not
 declared cleanly.
@@ -253,10 +295,10 @@ sub allowUndeclared(;$)
 
 =section Compilers
 
-=method compileAll ['READER'|'WRITER'|'RW', [NAMESPACE]]
-Compile all the declared readers and writers (default 'RW').  You may
-also select to pre-compile only the READERs or only the WRITERs.  The
-selection can be limited further by specifying a namespace.
+=method compileAll ['READERS'|'WRITERS'|'RW', [NAMESPACE]]
+Compile all the declared readers and writers with the default 'RW').  You may
+also select to pre-compile only the READERS or only the WRITERS.  The
+selection can be limited further by specifying a NAMESPACE.
 
 By default, the processors are only compiled when used.  This method is
 especially useful in a daemon process, where preparations can take as
@@ -417,7 +459,9 @@ sub mergeCompileOptions($$$)
       : ($self->{XCC_wopts}, $self->{XCC_dwopts}{$type});
 
     my %p    = %{$self->{XCC_namespaces}};
-    my %opts = (prefixes => \%p, hooks => [], typemap => {}, xsi_type => {});
+    my %t    = %{$self->{XCC_typemap}};
+    my %x    = %{$self->{XCC_xsi_type}};
+    my %opts = (prefixes => \%p, hooks => [], typemap => \%t, xsi_type => \%x);
 
     # flatten list of parameters
     my @take = map {!defined $_ ? () : ref $_ eq 'ARRAY' ? @$_ : %$_ }
@@ -438,16 +482,26 @@ sub mergeCompileOptions($$$)
         }
         elsif($opt eq 'typemap')
         {   $val ||= {};
-            @{$opts{typemap}}{keys %$val} = values %$val;
+            if(ref $val eq 'ARRAY')
+            {   while(@$val)
+                {   my $k = $self->findName(shift @$val); 
+                    $t{$k} = shift @$val;
+                }
+            }
+            else
+            {   while(my($k, $v) = each %$val)
+                {   $t{$self->findName($k)} = $v;
+                }
+            }
         }
         elsif($opt eq 'key_rewrite')
         {   unshift @{$opts{key_rewrite}}, ref $val eq 'ARRAY' ? @$val : $val;
         }
         elsif($opt eq 'xsi_type')
         {   while(my ($t, $a) = each %$val)
-            {   my @a = ref $a eq 'ARRAY' ? @$a : $a;
-                push @{$opts{xsi_type}{$self->findName($t)}}
-                   , map $self->findName($_), @a;
+            {   my @a = ref $a eq 'ARRAY' ? map($self->findName($_), @$a)
+                  : $self->findName($a);
+                push @{$x{$self->findName($t)}},  @a;
             }
         }
         else
@@ -472,11 +526,14 @@ sub _cleanup_hooks($)
     $hooks;
 }
 
+my %need = (READER => [1,0], WRITER => [0,1], RW => [1,1]);
+$need{READERS} = $need{READER};
+$need{WRITERS} = $need{WRITER};
+
 sub _need($)
-{    $_[1] eq 'READER' ? (1,0)
-   : $_[1] eq 'WRITER' ? (0,1)
-   : $_[1] eq 'RW'     ? (1,1)
-   : error __x"use READER, WRITER or RW, not {dir}", dir => $_[1];
+{   my $need = $need{$_[1]}
+       or error __x"use READER, WRITER or RW, not {dir}", dir => $_[1];
+    @$need;
 }
 
 # support prefixes on types
@@ -508,13 +565,6 @@ sub compileType($$@)
       , $self->mergeCompileOptions($action, $type, \@_)
       );
 }
-
-#----------------------
-=section Administration
-
-=method declare 'READER'|'WRITER'|'RW', TYPE|ARRAY-of-TYPES, OPTIONS
-
-=cut
 
 #----------------------
 

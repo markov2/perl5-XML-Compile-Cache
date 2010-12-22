@@ -1,6 +1,19 @@
 
 ==== version history of XML::Compile::Cache
 
+version 0.98: Wed Dec 22 16:39:52 CET 2010
+
+	Improvements:
+
+	- compileAll() now also knows of READERS/WRITERS as alternative
+	  (better readible) alternatives of READER/WRITER.
+
+	- new accessor typemap() to add typemaps nicer.
+
+	- new accessor xsiTypes() to add xsi_type definitions nicer.
+
+	- typemaps and xsi_types do now accept prefixed types.
+
 version 0.97: Thu Sep 30 17:09:34 CEST 2010
 
 	Fixes:
