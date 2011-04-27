@@ -1,6 +1,20 @@
 
 ==== version history of XML::Compile::Cache
 
+version 0.99: Wed Apr 27 17:09:44 CEST 2011
+
+	Fixes:
+
+	- be able to use newly defined prefixes immediately in xsiTable.
+
+	Improvements:
+
+	- report missing action parameter to template(), common mistake
+
+	- add method addCompileOptions()
+
+	- add method anyElement()
+
 version 0.98: Wed Dec 22 16:39:52 CET 2010
 
 	Improvements:
