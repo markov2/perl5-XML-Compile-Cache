@@ -164,7 +164,8 @@ You may also provide an ARRAY of pairs or a HASH.
 sub prefixes(@)
 {   my $self  = shift;
     my $p     = $self->{XCC_namespaces} ||= {};
-    my $first = shift
+    my $first = shift;
+    @_ or defined $first
         or return $p;
 
     my @pairs

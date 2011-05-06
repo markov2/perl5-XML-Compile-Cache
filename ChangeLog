@@ -1,6 +1,12 @@
 
 ==== version history of XML::Compile::Cache
 
+version 0.991: Fri May  6 10:09:18 CEST 2011
+
+	Fixes:
+
+	- prefix declaration list which starts with a default ('') prefix.
+
 version 0.99: Wed Apr 27 17:09:44 CEST 2011
 
 	Fixes:
