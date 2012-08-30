@@ -1,6 +1,14 @@
 
 ==== version history of XML::Compile::Cache
 
+version 0.992: Fri Aug 31 00:25:48 CEST 2012
+
+	Improvements:
+
+	- support xsiType() with 'AUTO', discovered by [Ciaran Deignan]
+
+	- remove dependency to Test::POD
+
 version 0.991: Fri May  6 10:09:18 CEST 2011
 
 	Fixes:
