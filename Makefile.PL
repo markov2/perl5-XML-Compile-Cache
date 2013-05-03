@@ -4,9 +4,9 @@ use 5.008;
 
 WriteMakefile
  ( NAME	 	=> 'XML::Compile::Cache'
- , VERSION	=> '0.992'
+ , VERSION	=> '0.993'
  , PREREQ_PM    =>
-   { XML::Compile              => 1.27
+   { XML::Compile              => 1.28
    , XML::Compile::Tester      => 0.02
    , XML::LibXML::Simple       => 0.13
    , Log::Report               => 0.19
@@ -24,7 +24,7 @@ WriteMakefile
 sub MY::postamble { <<'__POSTAMBLE' }
 
 # for DIST
-EXTENDS		= ../XMLCompile
+EXTENDS		= ../XMLCompile:../XMLSimple
 RAWDIR          = ../public_html/xml-compile-cache/raw
 DISTDIR         = ../public_html/xml-compile-cache/source
 LICENSE         = artistic

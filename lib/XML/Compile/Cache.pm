@@ -147,10 +147,99 @@ sub init($)
 
 =section Accessors
 
+=method typemap [HASH|ARRAY|PAIRS]
+[0.98] Add global knowledge on typemaps.  Returns the typemap.
+=cut
+
+sub typemap(@)
+{   my $self = shift;
+    my $t    = $self->{XCC_typemap} ||= {};
+    my @d    = @_ > 1 ? @_ : !defined $_[0] ? ()
+             : ref $_[0] eq 'HASH' ? %{$_[0]} : @{$_[0]};
+    while(@d) { my $k = $self->findName(shift @d); $t->{$k} = shift @d }
+    $t;
+}
+
+=method xsiType [HASH|ARRAY|LIST]
+[0.98] add global xsi_type declarations.  Returns the xsiType set.
+The ARRAY or LIST contains pairs, just like the HASH.
+
+The value component can be 'AUTO' to automatically detect the C<xsi:type>
+extensions.  This does only work for complex types.
+
+=cut
+
+sub xsiType(@)
+{   my $self = shift;
+    my $x    = $self->{XCC_xsi_type} ||= {};
+    my @d    = @_ > 1 ? @_ : !defined $_[0] ? ()
+             : ref $_[0] eq 'HASH' ? %{$_[0]} : @{$_[0]};
+
+    while(@d)
+    {   my $k = $self->findName(shift @d);
+        my $a = shift @d;
+        $a = $self->namespaces->autoexpand_xsi_type($k) || []
+            if $a eq 'AUTO';
+
+        push @{$x->{$k}}
+          , ref $a eq 'ARRAY' ? (map $self->findName($_), @$a)
+          :                     $self->findName($a);
+    }
+
+    $x;
+}
+
+=method allowUndeclared [BOOLEAN]
+Whether it is permitted to create readers and writers which are not
+declared cleanly.
+=cut
+
+sub allowUndeclared(;$)
+{   my $self = shift;
+    @_ ? ($self->{XCC_undecl} = shift) : $self->{XCC_undecl};
+}
+
+=method anyElement 'ATTEMPT'|'SLOPPY'|'SKIP_ALL'|'TAKE_ALL'|CODE
+[as method since 0.99] How to process ANY elements, see also
+M<new(any_element)>.
+
+Reader: C<ATTEMPT> will convert all any elements, applying the reader for
+each element found. When an element is not found in a schema, it will
+be included as M<XML::LibXML::Element> node.
+
+[0.93] Reader: With C<SLOPPY>, first automatic typed conversion is
+attempted. But is the type is not known, M<XML::LibXML::Simple::XMLin()>
+is called to the resque.
+=cut
+
+sub anyElement($)
+{   my ($self, $anyelem) = @_;
+
+    # the "$self" in XCC_ropts would create a ref-cycle, causing a
+    # memory leak.
+    my $s = $self; weaken $s;
+
+    my $code
+      = $anyelem eq 'ATTEMPT' ? sub {$s->_convertAnyTyped(@_)}
+      : $anyelem eq 'SLOPPY'  ? sub {$s->_convertAnySloppy(@_)}
+      :                         $anyelem;
+     
+    $self->addCompileOptions(READERS => any_element => $code);
+    $code;
+}
+
+#----------------------
+
+=section Prefix management
+
+The cache layer on top of M<XML::Compile::Schema> adds smart use of
+prefixes.  Of course, smartness comes with a small performance cost,
+but the code gets much cleaner.
+
 =method prefixes [PAIRS|ARRAY|HASH]
 Returns the HASH with prefix to name-space translations.  You should not
-modify the returned HASH.  New PAIRS of prefix to namespace relations
-can be passed.
+modify the returned HASH: new PAIRS of prefix to namespace relations
+can be passed as arguments.
 
 [0.14]
 If a name-space appears for the second time, then the new prefix will be
@@ -209,17 +298,58 @@ sub prefixFor($)
     $def->{prefix};
 }
 
-=method prefixed TYPE
+=method learnPrefixes NODE
+[0.993] Take all the prefixes defined in the NODE, and M<XML::LibXML::Element>.
+This is not recursive: only on those defined at the top NODE.
+=cut
+
+sub learnPrefixes($)
+{   my ($self, $node) = @_;
+    my $namespaces = $self->prefixes;
+
+  PREFIX:
+    foreach my $ns ($node->getNamespaces)  # learn preferred ns
+    {   my ($prefix, $uri) = ($ns->getLocalName, $ns->getData);
+        next if !defined $prefix || $namespaces->{$uri};
+
+        if(my $def = $self->prefix($prefix))
+        {   next PREFIX if $def->{uri} eq $uri;
+        }
+        else
+        {   $self->prefixes($prefix => $uri);
+            next PREFIX;
+        }
+
+        $prefix =~ s/0?$/0/;
+        while(my $def = $self->prefix($prefix))
+        {   next PREFIX if $def->{uri} eq $uri;
+            $prefix++;
+        }
+        $self->prefixes($prefix => $uri);
+    }
+}
+
+sub addSchemas($@)
+{   my ($self, $xml) = (shift, shift);
+    $self->learnPrefixes($xml);
+    $self->SUPER::addSchemas($xml, @_);
+}
+
+=method prefixed TYPE|(NAMESPACE,LOCAL)
 Translate the fully qualified TYPE into a prefixed version.  Will produce
 undef if the namespace is unknown.
 
+[0.993] When your TYPE is not in packed form, you can specify a namespace
+and LOCAL type name as separate arguments.
+
 =example
-   print $schema->prefixed($type} || $type;
+   print $schema->prefixed($type) || $type;
+   print $schema->prefixed($ns, $local);
 =cut
 
-sub prefixed($)
-{   my ($self, $type) = @_;
-    my ($ns, $local) = unpack_type $type;
+sub prefixed($;$)
+{   my $self = shift;
+    my ($ns, $local) = @_==2 ? @_ : unpack_type(shift);
     $ns or return $local;
     my $prefix = $self->prefixFor($ns);
     defined $prefix
@@ -228,112 +358,15 @@ sub prefixed($)
     length $prefix ? "$prefix:$local" : $local;
 }
 
-=method typemap [HASH|ARRAY|PAIRS]
-[0.98] Add global knowledge on typemaps.  Returns the typemap.
-=cut
-
-sub typemap(@)
-{   my $self = shift;
-    my $t    = $self->{XCC_typemap} ||= {};
-    my @d    = @_ > 1 ? @_ : !defined $_[0] ? ()
-             : ref $_[0] eq 'HASH' ? %{$_[0]} : @{$_[0]};
-    while(@d) { my $k = $self->findName(shift @d); $t->{$k} = shift @d }
-    $t;
-}
-
-=method xsiType [HASH|ARRAY|LIST]
-[0.98] add global xsi_type declarations.  Returns the xsiType set.
-The ARRAY or LIST contains pairs, just like the HASH.
-
-The value component can be 'AUTO' to automatically detect the C<xsi:type>
-extensions.  This does only work for complex types.
-
-=cut
-
-sub xsiType(@)
-{   my $self = shift;
-    my $x    = $self->{XCC_xsi_type} ||= {};
-    my @d    = @_ > 1 ? @_ : !defined $_[0] ? ()
-             : ref $_[0] eq 'HASH' ? %{$_[0]} : @{$_[0]};
-
-    while(@d)
-    {   my $k = $self->findName(shift @d);
-        my $a = shift @d;
-        $a = $self->namespaces->autoexpand_xsi_type($k) || []
-            if $a eq 'AUTO';
-
-        push @{$x->{$k}}
-          , ref $a eq 'ARRAY' ? (map $self->findName($_), @$a)
-          :                     $self->findName($a);
-    }
-
-    $x;
-}
-
-=method allowUndeclared [BOOLEAN]
-Whether it is permitted to create readers and writers which are not
-declared cleanly.
-=cut
-
-sub allowUndeclared(;$)
-{   my $self = shift;
-    @_ ? ($self->{XCC_undecl} = shift) : $self->{XCC_undecl};
-}
-
-=method addCompileOptions ['READERS'|'WRITERS'|'RW'], OPTIONS
-[0.99] You may provide global compile options with M<new(opts_rw)>,
-C<opts_readers> and C<opts_writers>, but also later using this method.
-=cut
-
-sub addCompileOptions(@)
-{   my $self = shift;
-    my $need = @_%2 ? shift : 'RW';
-
-    my $set
-      = $need eq 'RW'      ? $self->{XCC_opts}
-      : $need eq 'READERS' ? $self->{XCC_ropts}
-      : $need eq 'WRITERS' ? $self->{XCC_wopts}
-      : error __x"addCompileOptions() requires option set name, not {got}"
-          , got => $need;
-
-    if(ref $set eq 'HASH')
-         { while(@_) { my $k = shift; $set->{$k} = shift } }
-    else { push @$set, @_ }
-    $set;
-}
-
-=method anyElement 'ATTEMPT'|'SLOPPY'|'SKIP_ALL'|'TAKE_ALL'|CODE
-[as method since 0.99] How to process ANY elements, see also
-M<new(any_element)>.
-
-Reader: C<ATTEMPT> will convert all any elements, applying the reader for
-each element found. When an element is not found in a schema, it will
-be included as M<XML::LibXML::Element> node.
-
-[0.93] Reader: With C<SLOPPY>, first automatic typed conversion is
-attempted. But is the type is not known, M<XML::LibXML::Simple::XMLin()>
-is called to the resque.
-=cut
-
-sub anyElement($)
-{   my ($self, $anyelem) = @_;
-
-    # the "$self" in XCC_ropts would create a ref-cycle, causing a
-    # memory leak.
-    my $s = $self; weaken $s;
-
-    my $code
-      = $anyelem eq 'ATTEMPT' ? sub {$s->_convertAnyTyped(@_)}
-      : $anyelem eq 'SLOPPY'  ? sub {$s->_convertAnySloppy(@_)}
-      :                         $anyelem;
-     
-    $self->addCompileOptions(READERS => any_element => $code);
-    $code;
-}
-
 #----------------------
 
 =section Compilers
+
+The name of this module refers to its power to administer compiled
+XML encoders (writers) and decoders (readers).  This means that
+your program only need to pass on a ::Cache object (for instance
+a M<XML::Compile::WSDL11>, not a CODE reference for each compiled
+translator.
 
 =method compileAll ['READERS'|'WRITERS'|'RW', [NAMESPACE]]
 Compile all the declared readers and writers with the default 'RW').  You may
@@ -341,7 +374,7 @@ also select to pre-compile only the READERS or only the WRITERS.  The
 selection can be limited further by specifying a NAMESPACE.
 
 By default, the processors are only compiled when used.  This method is
-especially useful in a daemon process, where preparations can take as
+especially useful in a B<daemon process>, where preparations can take as
 much time as they want to... and running should be as fast as possible.
 =cut
 
@@ -488,6 +521,28 @@ sub template($$@)
     $self->SUPER::template($action, $type, @opts);
 }
 
+=method addCompileOptions ['READERS'|'WRITERS'|'RW'], OPTIONS
+[0.99] You may provide global compile options with M<new(opts_rw)>,
+C<opts_readers> and C<opts_writers>, but also later using this method.
+=cut
+
+sub addCompileOptions(@)
+{   my $self = shift;
+    my $need = @_%2 ? shift : 'RW';
+
+    my $set
+      = $need eq 'RW'      ? $self->{XCC_opts}
+      : $need eq 'READERS' ? $self->{XCC_ropts}
+      : $need eq 'WRITERS' ? $self->{XCC_wopts}
+      : error __x"addCompileOptions() requires option set name, not {got}"
+          , got => $need;
+
+    if(ref $set eq 'HASH')
+         { while(@_) { my $k = shift; $set->{$k} = shift } }
+    else { push @$set, @_ }
+    $set;
+}
+
 # Create a list with options for X::C::Schema::compile(), from a list of ARRAYs
 # and HASHES with options.  The later options overrule the older, but in some
 # cases, the new values are added.  This method knows how some of the options
@@ -618,7 +673,7 @@ Register that the indicated TYPE (or TYPES) may be used, and needs to
 be translated with the OPTIONS (either specified as ARRAY or LIST).
 Specify whether it may get used as READER, WRITER, or both (RW).  If the
 READER and WRITER need different options, then you need to declare them
-seperately; in that case you cannot use RW.
+separately; in that case you cannot use RW.
 
 The TYPE should be understood by M<findName()>, so may be prefixed.
 

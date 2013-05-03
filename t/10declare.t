@@ -26,7 +26,8 @@ isa_ok($cache, 'XML::Compile::Schema');
 $cache->importDefinitions(<<__SCHEMA);
 <schema targetNamespace="$TestNS"
         xmlns="$SchemaNS"
-        xmlns:me="$TestNS">
+        xmlns:me="$TestNS"
+        elementFormDefault="qualified">
 
 <element name="test1" type="int" />
 <element name="test2" type="int" />
