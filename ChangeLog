@@ -1,6 +1,11 @@
 
 ==== version history of XML::Compile::Cache
 
+version 0.994: Mon May 13 12:17:51 CEST 2013
+
+	Fixes:
+	- compileAll() used declared parameters twice.
+
 version 0.993: Fri May  3 15:11:16 CEST 2013
 
 	Improvements:
