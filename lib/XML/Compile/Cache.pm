@@ -118,6 +118,8 @@ See M<anyElement()>.
 
 sub init($)
 {   my ($self, $args) = @_;
+    $self->addPrefixes($args->{prefixes});
+
     $self->SUPER::init($args);
 
     $self->{XCC_opts}   = delete $args->{opts_rw}      || [];
@@ -135,7 +137,6 @@ sub init($)
     $self->{XCC_readers} = {};
     $self->{XCC_writers} = {};
 
-    $self->prefixes($args->{prefixes});
     $self->typemap($args->{typemap});
     $self->xsiType($args->{xsi_type});
     $self->anyElement($args->{any_element} || 'SKIP_ALL');
@@ -236,21 +237,20 @@ The cache layer on top of M<XML::Compile::Schema> adds smart use of
 prefixes.  Of course, smartness comes with a small performance cost,
 but the code gets much cleaner.
 
-=method prefixes [PAIRS|ARRAY|HASH]
-Returns the HASH with prefix to name-space translations.  You should not
-modify the returned HASH: new PAIRS of prefix to namespace relations
+=method addPrefixes [PAIRS|ARRAY|HASH]
+[0.995] Returns the HASH with prefix to name-space translations.  You should
+not modify the returned HASH: new PAIRS of prefix to namespace relations
 can be passed as arguments.
 
-[0.14]
-If a name-space appears for the second time, then the new prefix will be
-recognized by M<findName()>, but not used in the output.  When the prefix
-already exists for a different namespace, then an error will be casted.
+[0.14] If a name-space appears for the second time, then the new
+prefix will be recognized by M<findName()>, but not used in the output.
+When the prefix already exists for a different namespace, then an error
+will be casted.
 
-[0.90]
-You may also provide an ARRAY of pairs or a HASH.
+[0.90] You may also provide an ARRAY of pairs or a HASH.
 =cut
 
-sub prefixes(@)
+sub addPrefixes(@)
 {   my $self  = shift;
     my $p     = $self->{XCC_namespaces} ||= {};
     my $first = shift;
@@ -262,8 +262,9 @@ sub prefixes(@)
       : ref $first eq 'ARRAY' ? @$first
       : ref $first eq 'HASH'  ? %$first
       : error __x"prefixes() expects list of PAIRS, an ARRAY or a HASH";
+# warn "new prefixes: @pairs\n";
 
-    my $a    = $self->{XCC_prefixes}   ||= {};
+    my $a    = $self->{XCC_prefixes} ||= {};
     while(@pairs)
     {   my ($prefix, $ns) = (shift @pairs, shift @pairs);
         $p->{$ns} ||= { uri => $ns, prefix => $prefix, used => 0 };
@@ -282,11 +283,26 @@ sub prefixes(@)
     $p;
 }
 
+
+=method prefixes [PARAMS]
+Return prefixes table.  The PARAMS are deprecated since [0.995], see
+M<addPrefixes()>.
+=cut
+
+sub prefixes(@)
+{   my $self = shift;
+    return $self->addPrefixes(@_) if @_;
+    $self->{XCC_namespaces} || {};
+}
+
 =method prefix PREFIX
 Lookup a prefix definition.  This returns a HASH with namespace info.
 =cut
 
 sub prefix($) { $_[0]->{XCC_prefixes}{$_[1]} }
+
+# [0.995] should this be public?
+sub byPrefixTable() { shift->{XCC_prefixes} }
 
 =method prefixFor URI
 Lookup the preferred prefix for the URI.
@@ -316,7 +332,7 @@ sub learnPrefixes($)
         {   next PREFIX if $def->{uri} eq $uri;
         }
         else
-        {   $self->prefixes($prefix => $uri);
+        {   $self->addPrefixes($prefix => $uri);
             next PREFIX;
         }
 
@@ -325,7 +341,7 @@ sub learnPrefixes($)
         {   next PREFIX if $def->{uri} eq $uri;
             $prefix++;
         }
-        $self->prefixes($prefix => $uri);
+        $self->addPrefixes($prefix => $uri);
     }
 }
 
@@ -722,7 +738,7 @@ When the form is 'myns:' (so without local name), the namespace uri is
 returned.
 
 =examples of findName()
-  $schema->prefixes(pre => 'http://namespace');
+  $schema->addPrefixes(pre => 'http://namespace');
 
   my $type = $schema->findName('pre:name');
   print $type;   # {http://namespace}name
@@ -810,12 +826,11 @@ sub _convertAnyTyped(@)
     {   trace "cannot auto-convert 'any': ".$@->wasFatal->message;
         return ($key => $nodes);
     }
-    trace "auto-convert known type 'any' $type";
+    trace "auto-convert known type for 'any': $type";
 
     my @nodes   = ref $nodes eq 'ARRAY' ? @$nodes : $nodes;
-    my @convert = map {$reader->($_)} @nodes;
-
-    ($key => @convert==1 ? $convert[0] : \@convert);
+    my @convert = map $reader->($_), @nodes;
+    ($key => (@convert==1 ? $convert[0] : \@convert) );
 }
 
 sub _convertAnySloppy(@)

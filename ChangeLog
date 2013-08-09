@@ -1,6 +1,17 @@
 
 ==== version history of XML::Compile::Cache
 
+version 0.995: Sat Aug 10 00:16:59 CEST 2013
+
+	Fixes:
+	- ::new(prefixes) did not overrule the prefixes from the schema
+	  file.
+
+	Improvements:
+	- alias new ::addPrefixes() to ::prefixes() for more consistent
+	  naming.
+	- new ::Cache::byPrefixTable()
+
 version 0.994: Mon May 13 12:17:51 CEST 2013
 
 	Fixes:
