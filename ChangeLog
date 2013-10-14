@@ -1,6 +1,12 @@
 
 ==== version history of XML::Compile::Cache
 
+version 1.00: Mon Oct 14 23:15:46 CEST 2013
+
+	Improvements:
+	- bump version numbers back into two-digits, because FreeBSD
+	  ports doesn't like it. [Patrick Powell]
+
 version 0.995: Sat Aug 10 00:16:59 CEST 2013
 
 	Fixes:
