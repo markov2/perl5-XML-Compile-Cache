@@ -161,8 +161,8 @@ sub typemap(@)
     $t;
 }
 
-=method xsiType [HASH|ARRAY|LIST]
-[0.98] add global xsi_type declarations.  Returns the xsiType set.
+=method addXsiType [HASH|ARRAY|LIST]
+[1.01] add global xsi_type declarations.  Returns the xsiType set.
 The ARRAY or LIST contains pairs, just like the HASH.
 
 The value component can be 'AUTO' to automatically detect the C<xsi:type>
@@ -170,7 +170,7 @@ extensions.  This does only work for complex types.
 
 =cut
 
-sub xsiType(@)
+sub addXsiType(@)
 {   my $self = shift;
     my $x    = $self->{XCC_xsi_type} ||= {};
     my @d    = @_ > 1 ? @_ : !defined $_[0] ? ()
@@ -189,6 +189,7 @@ sub xsiType(@)
 
     $x;
 }
+*xsiType = \&addXsiType;
 
 =method allowUndeclared [BOOLEAN]
 Whether it is permitted to create readers and writers which are not
@@ -238,6 +239,17 @@ prefixes.  Of course, smartness comes with a small performance cost,
 but the code gets much cleaner.
 
 =method addPrefixes [PAIRS|ARRAY|HASH]
+The X::C logic does auto-detect prefix/namespaces combinations from
+the XML, but does not search extensively for namespace declarations.
+Also, sometimes the same namespace is used with different prefixes.
+Sometimes, the same prefix is used for different namesapces.  To complete
+the list, or control the actual prefix being used, you explicitly declare
+combinations.
+
+The B<best way> to add prefixes is via M<new(prefixes)>, which will give
+your names preference over the names found in the schema's which get loaded.
+For instance, use C<< ::WSDL->new(prefixes => [ $prefix => $ns ] >>
+
 [0.995] Returns the HASH with prefix to name-space translations.  You should
 not modify the returned HASH: new PAIRS of prefix to namespace relations
 can be passed as arguments.
@@ -369,7 +381,8 @@ sub prefixed($;$)
     $ns or return $local;
     my $prefix = $self->prefixFor($ns);
     defined $prefix
-        or error __x"no prefix known for namespace {ns}", ns => $ns;
+        or error __x"no prefix known for namespace `{ns}', use addPrefixes()"
+            , ns => $ns;
 
     length $prefix ? "$prefix:$local" : $local;
 }

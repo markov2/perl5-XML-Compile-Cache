@@ -1,6 +1,13 @@
 
 ==== version history of XML::Compile::Cache
 
+version 1.01: Sun Jan  5 17:47:17 CET 2014
+	Changes:
+	- xsiType() renamed to addXsiType(), old name still available
+
+	Improvements:
+	- bit more docs on addPrefixes()
+
 version 1.00: Mon Oct 14 23:15:46 CEST 2013
 
 	Improvements:
