@@ -66,7 +66,7 @@ M<XML::Compile::Util::pack_type()>.
 
 =section Constructors
 
-=c_method new OPTIONS
+=c_method new %options
 
 =option  prefixes HASH|ARRAY-of-PAIRS
 =default prefixes <smart>
@@ -112,8 +112,14 @@ writer may also get options passed for the compiler, as long as
 they are consistent over each use of the type.
 
 =option  any_element CODE|'TAKE_ALL'|'SKIP_ALL'|'ATTEMPT'|'SLOPPY'
-=default any_element 'SKIP_ALL'
+=default any_element 'ATTEMPT'
 See M<anyElement()>.
+
+[1.02] the default is to ATTEMPT compiling any handlers automatically.
+Before version 1.02, the default was to SKIP_ALL elements which would
+match the occurs and namespace restrictions of the any specification.
+However, that fails for reperative blocks (for instance, it fails for
+an choice which may occur unbounded times)
 =cut
 
 sub init($)
@@ -139,7 +145,7 @@ sub init($)
 
     $self->typemap($args->{typemap});
     $self->xsiType($args->{xsi_type});
-    $self->anyElement($args->{any_element} || 'SKIP_ALL');
+    $self->anyElement($args->{any_element} || 'ATTEMPT');
 
     $self;
 }
@@ -296,8 +302,8 @@ sub addPrefixes(@)
 }
 
 
-=method prefixes [PARAMS]
-Return prefixes table.  The PARAMS are deprecated since [0.995], see
+=method prefixes [$params]
+Return prefixes table.  The $params are deprecated since [0.995], see
 M<addPrefixes()>.
 =cut
 
@@ -307,7 +313,7 @@ sub prefixes(@)
     $self->{XCC_namespaces} || {};
 }
 
-=method prefix PREFIX
+=method prefix $prefix
 Lookup a prefix definition.  This returns a HASH with namespace info.
 =cut
 
@@ -316,8 +322,8 @@ sub prefix($) { $_[0]->{XCC_prefixes}{$_[1]} }
 # [0.995] should this be public?
 sub byPrefixTable() { shift->{XCC_prefixes} }
 
-=method prefixFor URI
-Lookup the preferred prefix for the URI.
+=method prefixFor $uri
+Lookup the preferred prefix for the $uri.
 =cut
 
 sub prefixFor($)
@@ -326,9 +332,9 @@ sub prefixFor($)
     $def->{prefix};
 }
 
-=method learnPrefixes NODE
-[0.993] Take all the prefixes defined in the NODE, and M<XML::LibXML::Element>.
-This is not recursive: only on those defined at the top NODE.
+=method learnPrefixes $node
+[0.993] Take all the prefixes defined in the $node, and M<XML::LibXML::Element>.
+This is not recursive: only on those defined at the top $node.
 =cut
 
 sub learnPrefixes($)
@@ -363,12 +369,12 @@ sub addSchemas($@)
     $self->SUPER::addSchemas($xml, @_);
 }
 
-=method prefixed TYPE|(NAMESPACE,LOCAL)
-Translate the fully qualified TYPE into a prefixed version.  Will produce
+=method prefixed $type|<$ns,$local>
+Translate the fully qualified $type into a prefixed version.  Will produce
 undef if the namespace is unknown.
 
-[0.993] When your TYPE is not in packed form, you can specify a namespace
-and LOCAL type name as separate arguments.
+[0.993] When your $type is not in packed form, you can specify a namespace
+and $local type name as separate arguments.
 
 =example
    print $schema->prefixed($type) || $type;
@@ -397,10 +403,10 @@ your program only need to pass on a ::Cache object (for instance
 a M<XML::Compile::WSDL11>, not a CODE reference for each compiled
 translator.
 
-=method compileAll ['READERS'|'WRITERS'|'RW', [NAMESPACE]]
+=method compileAll ['READERS'|'WRITERS'|'RW', [$ns]]
 Compile all the declared readers and writers with the default 'RW').  You may
 also select to pre-compile only the READERS or only the WRITERS.  The
-selection can be limited further by specifying a NAMESPACE.
+selection can be limited further by specifying a $ns.
 
 By default, the processors are only compiled when used.  This method is
 especially useful in a B<daemon process>, where preparations can take as
@@ -432,14 +438,14 @@ sub compileAll(;$$)
     }
 }
 
-=method reader TYPE|NAME, OPTIONS
-Returns the reader CODE for the TYPE or NAME (see M<findName()>).
-OPTIONS are only permitted if M<new(allow_undeclared)> is true, and the
+=method reader $type|$name, %options
+Returns the reader CODE for the $type or $name (see M<findName()>).
+%options are only permitted if M<new(allow_undeclared)> is true, and the
 same as the previous call to this method.
 
 The reader will be compiled the first time that it is used, and that
 same CODE reference will be returned each next request for the same
-TYPE.  Call M<compileAll()> to have all readers compiled by force.
+$type.  Call M<compileAll()> to have all readers compiled by force.
 
 =examples
   my $schema = XML::Compile::Cache->new(\@xsd,
@@ -489,8 +495,8 @@ sub reader($@)
     $readers->{$type} ||= $self->compile(READER => $type, @_);
 }
 
-=method writer TYPE|NAME
-Returns the writer CODE for the TYPE or NAME (see M<findName()>).
+=method writer $type|$name
+Returns the writer CODE for the $type or $name (see M<findName()>).
 OPTIONS are only permitted if M<new(allow_undeclared)> is true, and the
 same as the previous call to this method.
 
@@ -550,7 +556,7 @@ sub template($$@)
     $self->SUPER::template($action, $type, @opts);
 }
 
-=method addCompileOptions ['READERS'|'WRITERS'|'RW'], OPTIONS
+=method addCompileOptions ['READERS'|'WRITERS'|'RW'], %options
 [0.99] You may provide global compile options with M<new(opts_rw)>,
 C<opts_readers> and C<opts_writers>, but also later using this method.
 =cut
@@ -697,14 +703,14 @@ sub compileType($$@)
 
 =section Administration
 
-=method declare 'READER'|'WRITER'|'RW', TYPE|ARRAY-of-TYPES, OPTIONS
-Register that the indicated TYPE (or TYPES) may be used, and needs to
-be translated with the OPTIONS (either specified as ARRAY or LIST).
+=method declare <'READER'|'WRITER'|'RW'>, <$type|ARRAY>, %options
+Register that the indicated $type (or ARRAY of them) may be used, and needs to
+be translated with the %options (either specified as ARRAY or PAIRS).
 Specify whether it may get used as READER, WRITER, or both (RW).  If the
 READER and WRITER need different options, then you need to declare them
 separately; in that case you cannot use RW.
 
-The TYPE should be understood by M<findName()>, so may be prefixed.
+The $type should be understood by M<findName()>, so may be prefixed.
 
 =example
   $cache->declare(READER => 'pref:count', sloppy_integers => 1)
@@ -740,9 +746,9 @@ sub declare($$@)
     $self;
 }
 
-=method findName NAME
-Translate the NAME specification into a schema defined full type.
-The NAME can be a full type (like '{namespace}localname', usually
+=method findName $name
+Translate the $name specification into a schema defined full type.
+The $name can be a full type (like '{namespace}localname', usually
 created with M<XML::Compile::Util::pack_type()>) or a prefixed type
 (like 'myns:localname', where C<myns> is defined via M<new(prefixes)>
 or M<prefixes()>).
@@ -783,7 +789,7 @@ sub findName($)
     length $local ? pack_type($def->{uri}, $local) : $def->{uri};
 }
 
-=method printIndex [FILEHANDLE], OPTIONS
+=method printIndex [$fh], %options
 
 =option  show_declared BOOLEAN
 =default show_declared <true>
@@ -833,6 +839,9 @@ sub printIndex(@)
 sub _convertAnyTyped(@)
 {   my ($self, $type, $nodes, $path, $read) = @_;
 
+{no warnings;
+defined $read or warn join ';', caller(0);
+}
     my $key     = $read->keyRewrite($type);
     my $reader  = try { $self->reader($type) };
     if($@)

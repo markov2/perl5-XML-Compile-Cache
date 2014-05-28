@@ -1,6 +1,14 @@
 
 ==== version history of XML::Compile::Cache
 
+version 1.02: Wed May 28 09:28:08 CEST 2014
+	Changes:
+	- any_element default changed from 'SKIP_ALL' into 'ATTEMPT'
+	  Bug reported by [Andrew Kirkpatrick]
+
+	Improvements:
+	- change documentation style.
+
 version 1.01: Sun Jan  5 17:47:17 CET 2014
 	Changes:
 	- xsiType() renamed to addXsiType(), old name still available
