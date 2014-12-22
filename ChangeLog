@@ -1,6 +1,16 @@
 
 ==== version history of XML::Compile::Cache
 
+version 1.03: Mon Dec 22 08:41:12 CET 2014
+
+	Fixes:
+	- compileAll code-refs stored incorrectly.
+
+	Improvements:
+	- new method ::WSDL11::addNicePrefix()
+	- support new 'extends' hook.
+	- reader()/writer() add is_type option
+
 version 1.02: Wed May 28 09:28:08 CEST 2014
 	Changes:
 	- any_element default changed from 'SKIP_ALL' into 'ATTEMPT'

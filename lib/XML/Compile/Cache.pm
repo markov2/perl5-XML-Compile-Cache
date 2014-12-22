@@ -133,14 +133,12 @@ sub init($)
     $self->{XCC_wopts}  = delete $args->{opts_writers} || [];
     $self->{XCC_undecl} = delete $args->{allow_undeclared} || 0;
 
-    $self->{XCC_rcode}  = {};  # compiled code refs
-    $self->{XCC_wcode}  = {};
     $self->{XCC_dropts} = {};  # declared opts
     $self->{XCC_dwopts} = {};
     $self->{XCC_uropts} = {};  # undeclared opts
     $self->{XCC_uwopts} = {};
 
-    $self->{XCC_readers} = {};
+    $self->{XCC_readers} = {}; # compiled code refs;
     $self->{XCC_writers} = {};
 
     $self->typemap($args->{typemap});
@@ -289,7 +287,7 @@ sub addPrefixes(@)
 
         if(my $def = $a->{$prefix})
         {   if($def->{uri} ne $ns)
-            {   error __x"prefix {prefix} already refers to {uri}, cannot use it for {ns}"
+            {   error __x"prefix `{prefix}' already refers to {uri}, cannot use it for {ns}"
                   , prefix => $prefix, uri => $def->{uri}, ns => $ns;
             }
         }
@@ -330,6 +328,37 @@ sub prefixFor($)
 {   my $def = $_[0]->{XCC_namespaces}{$_[1]} or return ();
     $def->{used}++;
     $def->{prefix};
+}
+
+=method addNicePrefix BASE, NAMESPACE
+[1.03] Register NAMESPACE -if not yet defined- with prefix name BASE.  When
+that prefix name is already in use for some other namespace, BASE followed
+by a number are attempted (starting with 01).  The prefix is returned.
+
+When the BASE already ends on a number, that number will get counted.
+
+=example
+  my $prefix = $schema->addNicePrefix('call', $myns);
+  # $prefix now can be call, call01, call02 etc
+=cut
+
+sub addNicePrefix($$)
+{   my ($self, $base, $ns) = @_;
+    if(my $def = $self->prefix($base))
+    {   return $base if $def->{uri} eq $ns;
+    }
+    else
+    {   $self->addPrefixes($base => $ns);
+        return $base;
+    }
+
+    $base .= '01' if $base !~ m/[0-9]$/;
+    while(my $def = $self->prefix($base))
+    {   return $base if $def->{uri} eq $ns;
+        $base++;
+    }
+    $self->addPrefixes($base => $ns);
+    $base;
 }
 
 =method learnPrefixes $node
@@ -423,7 +452,7 @@ sub compileAll(;$$)
             {   my ($myns, $local) = unpack_type $type;
                 next if $usens eq $myns;
             }
-            $self->{XCC_rcode}{$type} ||= $self->compile(READER=>$type);
+            $self->reader($type);
         }
     }
 
@@ -433,7 +462,7 @@ sub compileAll(;$$)
             {   my ($myns, $local) = unpack_type $type;
                 next if $usens eq $myns;
             }
-            $self->{XCC_wcode}{$type} ||= $self->compile(WRITER => $type);
+            $self->writer($type);
         }
     }
 }
@@ -446,6 +475,11 @@ same as the previous call to this method.
 The reader will be compiled the first time that it is used, and that
 same CODE reference will be returned each next request for the same
 $type.  Call M<compileAll()> to have all readers compiled by force.
+
+=option  is_type BOOLEAN
+=default is_type <false>
+[1.03] use M<compileType()> with the given element, to replace M<compile()>
+You probably want an additional C<element> parameter.
 
 =examples
   my $schema = XML::Compile::Cache->new(\@xsd,
@@ -468,6 +502,7 @@ sub _same_params($$)
 
 sub reader($@)
 {   my ($self, $name) = (shift, shift);
+    my %args    = @_;
     my $type    = $self->findName($name);
     my $readers = $self->{XCC_readers};
 
@@ -482,7 +517,9 @@ sub reader($@)
     {   if(my $ur = $self->{XCC_uropts}{$type})
         {   # do not use cached version when options differ
             _same_params $ur, \@_
-                or return $self->compile(READER => $type, @_);
+                or return $args{is_type}
+                  ? $self->compileType(READER => $type, @_)
+                  : $self->compile(READER => $type, @_);
         }
         else
         {   $self->{XCC_uropts}{$type} = \@_;
@@ -492,7 +529,9 @@ sub reader($@)
          { error __x"type {name} is only declared as writer", name => $name }
     else { error __x"type {name} is not declared", name => $name }
 
-    $readers->{$type} ||= $self->compile(READER => $type, @_);
+    $readers->{$type} ||= $args{is_type}
+       ? $self->compileType(READER => $type, @_)
+       : $self->compile(READER => $type, @_);
 }
 
 =method writer $type|$name
@@ -504,6 +543,11 @@ The writer will be compiled the first time that it is used, and that
 same CODE reference will be returned each next request for the same
 type.
 
+=option  is_type BOOLEAN
+=default is_type <false>
+[1.03] use M<compileType()> with the given element, to replace M<compile()>
+You probably want an additional C<element> parameter.
+
 =examples
   my $xml = $cache->writer('gml:members')->($doc, $data);
 
@@ -514,9 +558,10 @@ type.
   print $doc->toString(1);
 =cut
 
-sub writer($)
+sub writer($%)
 {   my ($self, $name) = (shift, shift);
-    my $type = $self->findName($name);
+    my %args    = @_;
+    my $type    = $self->findName($name);
     my $writers = $self->{XCC_writers};
 
     if(exists $self->{XCC_dwopts}{$type})
@@ -530,7 +575,9 @@ sub writer($)
     {   if(my $ur = $self->{XCC_uwopts}{$type})
         {   # do not use cached version when options differ
             _same_params $ur, \@_
-                or return $self->compile(WRITER => $type, @_)
+                or return $args{is_type}
+                  ? $self->compileType(WRITER => $type, @_)
+                  : $self->compile(WRITER => $type, @_);
         }
         else
         {   $self->{XCC_uwopts}{$type} = \@_;
@@ -543,7 +590,10 @@ sub writer($)
     {   error __x"type {name} is not declared", name => $name;
     }
 
-    $writers->{$type} ||= $self->compile(WRITER => $type, @_);
+    $writers->{$type} ||= $args{is_type}
+       ? $self->compileType(WRITER => $type, @_)
+       : $self->compile(WRITER => $type, @_);
+
 }
 
 sub template($$@)
@@ -650,11 +700,16 @@ sub _cleanup_hooks($)
 {   my ($self, $hooks) = @_;
     $hooks or return;
 
+    # translate prefixed type names into full names
     foreach my $hook (ref $hooks eq 'ARRAY' ? @$hooks : $hooks)
-    {   my $types = $hook->{type} or next;
-        $hook->{type} =
-           [ map {ref $_ eq 'Regexp' ? $_ : $self->findName($_)}
+    {   if(my $types = $hook->{type})
+        {   $hook->{type} =
+              [ map {ref $_ eq 'Regexp' ? $_ : $self->findName($_)}
                        ref $types eq 'ARRAY' ? @$types : $types ];
+        }
+        elsif(my $ext = $hook->{extends})
+        {   $hook->{extends} = $self->findName($ext);
+        }
     }
     $hooks;
 }
