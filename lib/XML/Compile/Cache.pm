@@ -66,7 +66,7 @@ M<XML::Compile::Util::pack_type()>.
 
 =section Constructors
 
-=c_method new %options
+=c_method new [$xml], %options
 
 =option  prefixes HASH|ARRAY-of-PAIRS
 =default prefixes <smart>
@@ -278,7 +278,6 @@ sub addPrefixes(@)
       : ref $first eq 'ARRAY' ? @$first
       : ref $first eq 'HASH'  ? %$first
       : error __x"prefixes() expects list of PAIRS, an ARRAY or a HASH";
-# warn "new prefixes: @pairs\n";
 
     my $a    = $self->{XCC_prefixes} ||= {};
     while(@pairs)
@@ -687,6 +686,9 @@ sub mergeCompileOptions($$$)
                 push @{$x{$self->findName($t)}},  @a;
             }
         }
+        elsif($opt eq 'ignore_unused_tags')
+        {   $opts{$opt} = defined $opts{$opt} ? qr/$opts{$opt}|$val/ : $val;
+        }
         else
         {   $opts{$opt} = $val;
         }
@@ -894,9 +896,6 @@ sub printIndex(@)
 sub _convertAnyTyped(@)
 {   my ($self, $type, $nodes, $path, $read) = @_;
 
-{no warnings;
-defined $read or warn join ';', caller(0);
-}
     my $key     = $read->keyRewrite($type);
     my $reader  = try { $self->reader($type) };
     if($@)
@@ -914,16 +913,18 @@ sub _convertAnySloppy(@)
 {   my ($self, $type, $nodes, $path, $read) = @_;
 
     my $key     = $read->keyRewrite($type);
+warn "SLOPPY $type ", map $_->toString(1), @$nodes;
     my $reader  = try { $self->reader($type) };
+warn "$@";
     if($@)
     {   # unknown type or untyped...
-        my @convert = map {XMLin $_} @$nodes;
+        my @convert = map XMLin($_), @$nodes;
         return ($key => @convert==1 ? $convert[0] : \@convert);
     }
     else
     {   trace "auto-convert known 'any' $type";
         my @nodes   = ref $nodes eq 'ARRAY' ? @$nodes : $nodes;
-        my @convert = map {$reader->($_)} @nodes;
+        my @convert = map $reader->($_), @nodes;
 
         ($key => @convert==1 ? $convert[0] : \@convert);
     }

@@ -1,6 +1,11 @@
 
 ==== version history of XML::Compile::Cache
 
+version 1.04: Wed  9 Sep 14:16:47 CEST 2015
+
+	Improvements:
+	- merge option 'ignore_unused_tags'
+
 version 1.03: Mon Dec 22 08:41:12 CET 2014
 
 	Fixes:
