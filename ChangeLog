@@ -1,6 +1,11 @@
 
 ==== version history of XML::Compile::Cache
 
+version 1.05: Mon Sep 19 22:39:23 CEST 2016
+
+	Fixes:
+	- include examples
+
 version 1.04: Wed  9 Sep 14:16:47 CEST 2015
 
 	Improvements:

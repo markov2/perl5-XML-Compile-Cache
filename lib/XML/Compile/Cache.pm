@@ -831,7 +831,8 @@ sub findName($)
     defined $name
         or panic "findName called without name";
 
-    return $name if $name =~ m/^\{/;
+    return $name
+        if substr($name, 0, 1) eq '{';
 
     my ($prefix,$local) = $name =~ m/^([\w-]*)\:(\S*)$/ ? ($1,$2) : ('',$name);
     my $def = $self->{XCC_prefixes}{$prefix};
@@ -913,9 +914,7 @@ sub _convertAnySloppy(@)
 {   my ($self, $type, $nodes, $path, $read) = @_;
 
     my $key     = $read->keyRewrite($type);
-warn "SLOPPY $type ", map $_->toString(1), @$nodes;
     my $reader  = try { $self->reader($type) };
-warn "$@";
     if($@)
     {   # unknown type or untyped...
         my @convert = map XMLin($_), @$nodes;
