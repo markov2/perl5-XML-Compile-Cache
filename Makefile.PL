@@ -1,10 +1,10 @@
 use ExtUtils::MakeMaker;
 
-use 5.008;
+use 5.010;
 
 WriteMakefile
  ( NAME	 	=> 'XML::Compile::Cache'
- , VERSION	=> '1.06'
+ , VERSION	=> '1.07'
  , PREREQ_PM    =>
    { XML::Compile              => 1.60
    , XML::Compile::Tester      => 0.02
