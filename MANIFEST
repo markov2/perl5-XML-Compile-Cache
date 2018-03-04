@@ -1,6 +1,7 @@
 ChangeLog
 MANIFEST
 Makefile.PL
+README.md
 lib/XML/Compile/Cache.pm
 t/01use.t
 t/10declare.t
